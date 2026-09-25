@@ -149,7 +149,9 @@ A star schema: two dimensions filtering one fact table in a single direction, pl
 
 ## Power Query Transformations
 
-**Built entirely through the Power Query ribbon - no M code was written or edited by hand.** Every step is a menu command, documented click by click in [`powerquery/power_query_steps.md`](powerquery/power_query_steps.md), so the transformation is reproducible by any analyst who has never seen M.
+**Built through the Power Query ribbon: every step is a menu command except one typed formula, and this README names it.** The pipeline is documented click by click in [`powerquery/power_query_steps.md`](powerquery/power_query_steps.md), so it is reproducible by any analyst who has never opened the Advanced Editor.
+
+The single exception is the `WeekStart` column, added through the *Custom Column* dialog as `Date.StartOfWeek([InvoiceDate], Day.Monday)`. The ribbon's *Start of Week* button cannot produce it: that command calls `Date.StartOfWeek` with no first-day argument, which always means Sunday regardless of the query locale. On this dataset a Sunday week would have cut the modelling window from 52 weeks to 51 and moved every standard deviation, safety stock and ABC figure in the model. One dialog is the honest fix; pretending the locale solved it would not be.
 
 | # | Step | Technique | Rows out |
 |---|---|---|---|
@@ -160,10 +162,11 @@ A star schema: two dimensions filtering one fact table in a single direction, pl
 | 2c | Remove Price ≤ 0 | Number Filters → Greater Than 0 | 1,019,654 |
 | 3 | Keep real products only (StockCode starts with 5 digits); Trim + UPPERCASE | Extract First Characters → type Whole Number → Remove Errors | 1,014,945 |
 | 3b | Remove Invoice 541431 (74,215 units, reversed by credit note C541433) | Filter | 1,014,944 |
-| 4 | Add WeekStart (Monday-start) | Add Column → Date → Week → Start of Week (query locale English (United Kingdom) → Monday) | - |
+| 4 | Add WeekStart (Monday-start) | Add Column → Custom Column: `Date.StartOfWeek([InvoiceDate], Day.Monday)` - the one typed formula | - |
 | 5 | Keep 52 complete weeks, 06 Dec 2010 → 28 Nov 2011 | Date Filters → Is Between | 500,376 |
 | 6 | Group to SKU × week, sum Units and Revenue | Transform → Group By | 96,033 |
-| 7 | Zero-fill the grid to 3,775 SKUs × 52 weeks | Pivot Column (Don't Aggregate) → Replace null with 0 → Unpivot Other Columns | 196,300 |
+| 6b | Seed the one week with no sales anywhere (27 Dec 2010) | Home → Enter Data (1 row, Units = 0) → Append Queries | 96,034 |
+| 7 | Zero-fill the grid to 3,775 SKUs × 52 weeks | Pivot Column (Don't Aggregate) → Replace null with 0 → Unpivot Other Columns → Merge back Revenue | 196,300 |
 | 8 | Excel scope: top 500 SKUs by annual value | Sort → Keep Top Rows | 26,000 |
 
 **Step 7 matters most.** Only 96,033 of 196,300 SKU-weeks (49%) contain a sale. Calculating standard deviation on the 96,033 rows that exist - which is what happens if you skip the zero-fill - measures variability only across weeks where the item sold, systematically understating σ and therefore understating safety stock on exactly the intermittent items that need the buffer most. The 100,267 zero rows are not missing data; they are the signal.
@@ -175,13 +178,19 @@ Power Query records every ribbon click as a step, and it stores those steps as M
 | Usually needs hand-written M | Done here with the ribbon |
 |---|---|
 | "Keep only codes whose first 5 characters are digits" (`try … otherwise`) | Add Column → Extract → First Characters (5) → change type to Whole Number → Remove Errors |
-| Monday-start week (`Date.StartOfWeek(…, Day.Monday)`) | Query locale set to English (United Kingdom) → Add Column → Date → Week → Start of Week, verified with *Name of Day* = Monday on 100% of rows |
-| Zero-filling missing SKU-weeks (`List.Dates` grid + join) | Pivot Column (Don't Aggregate) → Replace Values null → 0 → Unpivot Columns |
+| Zero-filling missing SKU-weeks (`List.Dates` grid + join) | Pivot Column (Don't Aggregate) → Replace Values null → 0 → Unpivot Other Columns |
+| Keeping a week in which nothing sold at all | Home → Enter Data: one zero-demand seed row, appended before the pivot |
 | Line revenue (`[Quantity] * [Price]`) | Add Column → Standard → Multiply |
 | Most frequent description per SKU | Group By + Sort + Remove Duplicates |
 | Running total for ABC | Not done in Power Query at all - it is a DAX calculated column |
 
-**What a reviewer sees:** open *Transform data* and every query's Applied Steps pane reads as plain-English ribbon steps (`Removed cancellations`, `Kept 5-digit product codes`, `Pivoted weeks`, `Replaced null with zero` …). No custom-column formulas, no *Advanced Editor* edits. A screenshot of that pane is the proof - see `images/07_power_query_applied_steps.png` in [`images/README.md`](images/README.md).
+And the one the ribbon genuinely cannot do:
+
+| Needs a typed formula | Why the ribbon cannot do it |
+|---|---|
+| `WeekStart = Date.StartOfWeek([InvoiceDate], Day.Monday)`, entered in the *Custom Column* dialog | *Add Column → Date → Week → Start of Week* always uses Sunday as the first day of the week. The argument is optional in M and defaults to Sunday; the query locale does not change it. This dataset's weeks run Monday–Sunday, so the default would have shifted every weekly boundary. |
+
+**What a reviewer sees:** open *Transform data* and every query's Applied Steps pane reads as plain-English ribbon steps (`Removed cancellations`, `Kept 5-digit product codes`, `Pivoted Column`, `Replaced Value`, `Unpivoted Other Columns` …). Exactly one step - `Added Custom` in `Sales_Raw` - holds a typed formula, and it is the one described above. No *Advanced Editor* edits anywhere. A screenshot of that pane is the proof - see `images/07_power_query_applied_steps.png` in [`images/README.md`](images/README.md).
 
 ---
 
@@ -467,7 +476,7 @@ Every assumption is labelled at the point of use, in the workbook and on the rep
 
 | Layer | Tool | What it does here |
 |---|---|---|
-| Extraction & transformation | Power Query (Excel + Power BI Desktop) | Append, filter, type, group, pivot/unpivot zero-fill - 100% ribbon, no hand-written M |
+| Extraction & transformation | Power Query (Excel + Power BI Desktop) | Append, filter, type, group, pivot/unpivot zero-fill - ribbon commands throughout, one typed Custom Column |
 | Policy modelling | Microsoft Excel - formulas, structured tables, PivotTables, data tables | `NORM.S.INV`, `STDEV.S`, `ROUNDUP`, `INDEX`/`MATCH`, one-way and two-way sensitivity tables |
 | Semantic model | Power BI Desktop 2.157, star schema, PBIP/TMDL | 13 tables, 17 DAX calculated columns |
 | Analytics language | DAX | 84 measures across 7 display folders; `SUMX` iteration, `CALCULATE`, context transition, what-if parameters, `TREATAS` |
@@ -475,7 +484,7 @@ Every assumption is labelled at the point of use, in the workbook and on the rep
 | Design system | `theme_inventory_teal.json` | 8 categorical hues validated for colour-vision deficiency; reserved status colours |
 | Version control | Git / GitHub | This repository |
 
-**Explicitly not used:** Python, R, SQL, hand-written M. Every deliverable is reproducible by an analyst with Excel and Power BI Desktop and nothing else - which is the actual toolset of the roles this project targets.
+**Explicitly not used:** Python, R, SQL, and the Advanced Editor. Every deliverable is reproducible by an analyst with Excel and Power BI Desktop and nothing else - which is the actual toolset of the roles this project targets.
 
 ---
 
@@ -495,7 +504,7 @@ inventory-optimization-abc-xyz/
 │       └── weekly_demand_wide.xlsx        ← top-500 pivoted, W1–W52, ready to paste into the model
 │
 ├── powerquery/
-│   └── power_query_steps.md               ← ribbon-click transformation guide (no M code)
+│   └── power_query_steps.md               ← ribbon-click transformation guide
 │
 ├── excel/
 │   ├── README.md                          ← sheet-by-sheet guide to the workbook
@@ -520,7 +529,7 @@ inventory-optimization-abc-xyz/
 │   ├── 04_action_list.png
 │   ├── 05_data_model.png
 │   ├── 06_excel_policy_sheet.png
-│   └── 07_power_query_applied_steps.png  ← proof: ribbon steps only, no hand-written M
+│   └── 07_power_query_applied_steps.png  ← proof: the Applied Steps pane, ribbon steps end to end
 │
 └── docs/
     ├── assumptions.md                     ← every simulated input, labelled
@@ -544,7 +553,7 @@ inventory-optimization-abc-xyz/
 | `04_action_list.png` | Page 4 | A planner-ready, filtered, sorted action list - the operational output |
 | `05_data_model.png` | Model view | A clean star schema with disconnected parameter tables |
 | `06_excel_policy_sheet.png` | `SKU_Policy` | The policy sheet itself: classification, safety stock, reorder point, EOQ and excess per SKU |
-| `07_power_query_applied_steps.png` | Power Query Editor | The Applied Steps pane - every step is a named ribbon action, no hand-written M |
+| `07_power_query_applied_steps.png` | Power Query Editor | The Applied Steps pane - every step is a named ribbon action |
 
 Capture specification for each image - resolution, framing, required state, what must be visible: [`images/README.md`](images/README.md).
 
@@ -577,7 +586,7 @@ Capture specification for each image - resolution, framing, required state, what
 
 ## Impact Summary
 
-> Built an end-to-end inventory optimization model in Excel and Power BI on 1.07M real retail transaction lines, cleaning and shaping them in Power Query - entirely through the ribbon, with no hand-written M - into a zero-filled 3,775 SKU × 52 week demand grid; applied ABC-XYZ segmentation and calculated safety stock, reorder points and EOQ per SKU, identifying £371K (20.3%) of excess inventory, flagging 2,099 SKUs requiring planner action, and quantifying the £82K (24.9%) cost of raising service level from 95% to 98% and the £301K working-capital exposure to a two-week supplier lead-time increase - validated to 0 mismatches against an independently built Excel model across all 500 shared SKUs.
+> Built an end-to-end inventory optimization model in Excel and Power BI on 1.07M real retail transaction lines, cleaning and shaping them in Power Query - through the ribbon, with a single typed formula - into a zero-filled 3,775 SKU × 52 week demand grid; applied ABC-XYZ segmentation and calculated safety stock, reorder points and EOQ per SKU, identifying £371K (20.3%) of excess inventory, flagging 2,099 SKUs requiring planner action, and quantifying the £82K (24.9%) cost of raising service level from 95% to 98% and the £301K working-capital exposure to a two-week supplier lead-time increase - validated to 0 mismatches against an independently built Excel model across all 500 shared SKUs.
 
 
 ---
