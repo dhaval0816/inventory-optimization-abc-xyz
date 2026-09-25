@@ -32,6 +32,16 @@
 
 **Why one year, and why this year.** 52 weeks captures exactly one full seasonal cycle - critical for a giftware business whose Q4 is structurally different from the rest of the year. The dataset runs to 09 Dec 2011, but that trailing stub is a partial week; including it would understate demand for every SKU selling in it and pull σ down. The 2009-10 sheet is excluded from the modelling window so that the demand history is one continuous, complete, comparable year.
 
+**One week inside the window has no sales at all.** The week beginning **27 Dec 2010** contains zero transactions across every SKU - the retailer closed between Christmas and New Year. That is genuine information (demand really was nil), but it breaks the pivot technique used to build the grid, because *Pivot Column* only creates a column for a week that appears in the data. A single seed row (`StockCode 10002`, `WeekStart 2010-12-27`, `Units 0`) is therefore appended before the pivot so the calendar stays 52 weeks wide.
+
+| Assumption | Value |
+|---|---|
+| Zero-week seed row | 1 row, `Units = 0`, `Revenue = 0` |
+| Effect on any total | None - the row carries no quantity and no value |
+| Effect if omitted | The grid becomes 3,775 x 51 = 192,525 rows and every sigma is computed over 51 weeks instead of 52 |
+
+This is a modelling device, not data. It is created with Home -> Enter Data as the query `Zero_Week_Seed`, loaded off, and visible in the Applied Steps of `Fact_WeeklyDemand` as `Appended Query`.
+
 **Limitation:** one year supports a seasonal profile but not a year-on-year trend. A SKU whose demand is structurally declining is treated identically to a stable one. With two full years the model could separate trend from noise; with one, σ absorbs both.
 
 ### 1.2 Zero-demand weeks are real demand information

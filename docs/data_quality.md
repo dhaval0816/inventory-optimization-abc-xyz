@@ -76,6 +76,9 @@ The single check this model depends on:
 | Week sequence 06 Dec 2010 → 28 Nov 2011 | 52 consecutive Mondays, no gap |
 | Partial weeks in window | 0 - both boundaries land on a Monday |
 | Trailing partial week (Dec 2011) | Excluded by design |
+| Weeks with no transactions anywhere | 1 - week beginning 27 Dec 2010 (Christmas closure) |
+
+**The 27 Dec 2010 week is the trap in this dataset.** It contains no rows at all, so the pivot that builds the grid would produce no column for it and the window would quietly shrink to 51 weeks. A single zero-demand seed row is appended before the pivot to hold the week open; it carries no units and no value, and it is documented in [`assumptions.md`](assumptions.md). Without it, every standard deviation in the model would be taken over 51 observations instead of 52.
 
 A partial period at the end of a demand history is the most common cause of an understated σ in inventory models: the short week reads as a demand collapse. It is excluded explicitly and the exclusion is a named step in the query.
 
