@@ -1,10 +1,10 @@
 # Power Query Transformation Guide - Ribbon Clicks Only
 
-**Raw source → model-ready demand grid, built by hand in the Power Query ribbon. No M code was written, pasted or edited.**
+**Raw source → model-ready demand grid, built by hand in the Power Query ribbon. One typed formula in the whole pipeline; every other step is a menu command.**
 
 Every step below is a menu selection in the Power Query Editor. Follow them in order and you will reproduce the exact row counts published in [`../docs/data_quality.md`](../docs/data_quality.md). The same instructions work in Excel (Data → Get Data) and in Power BI Desktop (Home → Get data) - the ribbon is the same editor in both.
 
-> **Zero typed formulas.** No *Custom Column*, no *Advanced Editor*, no formula bar edits. Power Query records each click as a step (it stores them as M internally - that is simply how the tool saves your work), but every one of those steps was created from a menu. The Applied Steps pane in §Applied Steps as documentation is the evidence.
+> **One typed formula, and it is Step 5.1.** The `WeekStart` column is entered in the *Custom Column* dialog as `Date.StartOfWeek([InvoiceDate], Day.Monday)`. Everything else in this guide is a menu command. No *Advanced Editor*, no formula-bar edits. Power Query records each click as a step (it stores them as M internally - that is simply how the tool saves your work), but every one of those steps was created from a menu. The Applied Steps pane in §Applied Steps as documentation is the evidence.
 
 > **Why build it this way?** A ribbon-click pipeline can be rebuilt, audited and maintained by any analyst with Excel or Power BI - the realistic audience for an inventory model in an operations team. Anything the ribbon cannot do (the running total behind ABC, the simulated inputs) is deliberately pushed into DAX calculated columns instead of being hand-coded in M. The full reasoning is in [`../powerbi/build_notes/00_BUILD_WITHOUT_M_CODE.md`](../powerbi/build_notes/00_BUILD_WITHOUT_M_CODE.md).
 
@@ -13,9 +13,9 @@ Every step below is a menu selection in the Power Query Editor. Follow them in o
 | # | Click | Why |
 |---|---|---|
 | 0a | Power BI: File → Options and settings → Options → Current File → Regional Settings · Excel: Data → Get Data → Query Options → Current Workbook → Regional Settings | |
-| 0b | Locale for import: English (United Kingdom) → OK | The source is a UK retailer: dates are read as dd/mm, and the week-start command in Step 5 uses a Monday week, which is what the whole model is built on |
+| 0b | Locale for import: English (United Kingdom) → OK | The source is a UK retailer; `InvoiceDate` must be read as dd/mm, not mm/dd |
 
-Setting the locale is what lets the week column in Step 5 be a single ribbon click rather than a typed formula - and it is verified in Step 5.1, not assumed.
+The locale controls how dates are *parsed*. It does **not** control which day a week starts on - see Step 5.1.
 
 ---
 
@@ -170,18 +170,20 @@ No formula typed - Standard → Multiply is the ribbon equivalent of `[Quantity]
 
 ## Step 5 - Week Creation
 
-### 5.1 Add the week column - one ribbon click, then prove it is Monday
+### 5.1 Add the week column - the one typed formula, and why it has to be typed
 
 | # | Click | Result |
 |---|---|---|
-| 39 | Select `InvoiceDate` → Add Column → From Date & Time → Date → Week → Start of Week | New column `Start of Week` |
-| 40 | Rename it `WeekStart`; set type to Date | |
-| 41 | Verify: select `WeekStart` → Add Column → Date → Day → Name of Day | Helper column `Day Name` |
-| 42 | Tick View → Column distribution, profile on the *entire data set* - `Day Name` must show one value: Monday → then delete the helper column | Monday-start weeks |
+| 39 | Add Column → General → Custom Column | Dialog opens |
+| 40 | New column name: `WeekStart` · Formula: `Date.StartOfWeek([InvoiceDate], Day.Monday)` → OK | New column `WeekStart` |
+| 41 | Right-click `WeekStart` → Change Type → Date | Date type |
+| 42 | Verify: select `WeekStart` → Add Column → Date → Day → Name of Day, tick View → Column distribution and profile on the *entire data set* - `Day Name` must show one value, Monday → then delete the helper column | Monday-start weeks, proven |
 
-**Why the check matters.** The ribbon's *Start of Week* uses the query locale's first day of the week. With the English (United Kingdom) locale from Step 0 that is Monday; with `en-US` it would be Sunday, which would shift every weekly boundary by a day and silently change every total. The two-click check turns an assumption into evidence.
+**Why not the ribbon button.** *Add Column → Date → Week → Start of Week* looks like the obvious command, and it is wrong for this dataset. It calls `Date.StartOfWeek` with the first-day argument omitted, and that argument defaults to **Sunday** - the query locale does not change it ([Microsoft's `Date.StartOfWeek` reference](https://learn.microsoft.com/powerquery-m/date-startofweek) shows the default in its first example).
 
-> **If `Day Name` shows Sunday** (the locale did not take), fix it without typing anything: with the query selected, open Step 0 again and confirm the locale, then Home → Refresh Preview. Do not proceed to 5.2 until the column shows Monday only - the 500,376 row count in 5.2 is the second check.
+What that costs here is not cosmetic. With Sunday weeks the 52-week window 06 Dec 2010 → 28 Nov 2011 collapses to 51 weeks, the week of 6–12 Dec 2010 disappears entirely, and every mean, standard deviation, safety stock, reorder point and ABC class in the model moves. One dialog is the correct fix. Claiming the locale solved it would be a false claim in a portfolio piece, which is worse than typing one formula.
+
+> **If `Day Name` shows anything but Monday**, the `Day.Monday` argument is missing from the formula. Fix it in the same dialog - do not proceed to 5.2 until the column shows Monday only; the 500,376 row count in 5.2 is the second check.
 
 ### 5.2 Keep exactly 52 complete weeks
 
@@ -215,15 +217,30 @@ Rename: `Kept 52 complete weeks`.
 
 The pivot → replace → unpivot round trip creates the missing rows as zeros using three ribbon commands and no join.
 
+### 6.0 Seed the one week in which nothing sold at all
+
+One week in this dataset - **27 Dec 2010 to 2 Jan 2011** - contains no transactions whatsoever, because the retailer closed over Christmas. That breaks the pivot trick: *Pivot Column* creates one column per value that exists, so a week with no rows anywhere produces no column, and the grid silently comes out 51 weeks wide instead of 52. Every SKU's standard deviation would then be computed over 51 observations instead of 52, including the zero.
+
+The ribbon-only fix is a one-row seed table:
+
+| # | Click | Result |
+|---|---|---|
+| 50a | Home → New Query → Enter Data | Create Table dialog |
+| 50b | Three columns `StockCode`, `WeekStart`, `Units` · one row: `10002`, `2010-12-27`, `0` · name it `Zero_Week_Seed` → OK | 1-row query |
+| 50c | Set types: `StockCode` Text, `WeekStart` Date, `Units` Whole Number · right-click the query → untick Enable load | Staging query |
+
+`Units` is zero, so the seed adds nothing to any total; it exists only so the calendar stays 52 weeks wide. It is listed in [`../docs/assumptions.md`](../docs/assumptions.md) as a modelling device, not as data.
+
 | # | Click | Result |
 |---|---|---|
 | 51 | Right-click `Weekly_Sold` → Reference. Rename the new query `Fact_WeeklyDemand` | Keeps `Weekly_Sold` intact for the revenue merge |
 | 52 | Select `Revenue` → right-click → Remove | Pivot one measure at a time |
+| 52b | Append the zero-week seed - see §6.0 below | 96,034 rows |
 | 53 | Select `WeekStart` → Transform → Any Column → Pivot Column | |
 | 54 | Values Column: `Units` · Advanced options → Aggregate Value Function → Don't Aggregate → OK | 3,775 rows × 52 week columns. Every gap is a `null` |
-| 55 | Select all 52 week columns (click the first, Shift-click the last) | Not `StockCode` |
-| 56 | Transform → Any Column → Replace Values → Value to Find `null`, Replace With `0` → OK | Every gap is now a real zero |
-| 57 | With the 52 week columns still selected → Transform → Any Column → Unpivot Columns | |
+| 55 | Select all columns (click `StockCode`, then Ctrl-A in the grid) | `StockCode` holds no nulls, so including it is harmless |
+| 56 | Home → Transform → Replace Values → Value to Find `null`, Replace With `0` → OK | Every gap is now a real zero |
+| 57 | Select `StockCode` → right-click → Unpivot Other Columns | Do this *after* the null fill: unpivot drops null values, which would undo the whole point |
 | 58 | Rename `Attribute` → `WeekStart`, `Value` → `Units` | |
 | 59 | Set `WeekStart` to Date, `Units` to Whole Number | 196,300 rows |
 
@@ -268,11 +285,11 @@ Build the SKU dimension. Keep every step ribbon-only; anything derived (unit cos
 
 | # | Click |
 |---|---|
-| 64 | Reference `Weekly_Sold`'s upstream cleaned query → rename `Dim_SKU` |
+| 64 | Right-click `Sales_Raw` → Reference → rename `SKU_Description` (load off) |
 | 65 | Transform → Group By (Advanced): group by `StockCode` and `Description`; new column `n`, Operation Count Rows |
-| 66 | Sort `StockCode` Ascending, then `n` Descending (Home → Sort - apply in that order) |
-| 67 | Select `StockCode` → Home → Remove Rows → Remove Duplicates | Keeps the first row per SKU = the most frequent description |
-| 68 | Remove the `n` column |
+| 66 | `StockCode` filter arrow → Sort Ascending, then `n` filter arrow → Sort Descending (in that order - the second sort becomes the tie-break) |
+| 67 | Select `StockCode` → right-click → Remove Duplicates | Keeps the first row per SKU = the most frequent description |
+| 68 | The `n` column can stay; only `Description` is expanded in 8.2 |
 
 > **Fallback** if the sort is not respected after a refresh (Power Query does not guarantee sort stability across a Remove Duplicates): Group By `StockCode` → Operation Max, Column `Description`. Description drives no calculation, so "most frequent" and "alphabetically last" are equally acceptable - but say which one you used.
 
@@ -280,8 +297,9 @@ Build the SKU dimension. Keep every step ribbon-only; anything derived (unit cos
 
 | # | Click |
 |---|---|
-| 69 | From the cleaned transaction query: Transform → Group By → group by `StockCode`, new column `MedianPrice`, Operation Median, Column `Price` |
-| 70 | Merge Queries into `Dim_SKU` on `StockCode`, Left Outer, expand `MedianPrice` |
+| 69 | `SKU_Attributes`: Source = `Sales_Raw` → Transform → Group By → group by `StockCode`, new column `MedianPrice`, Operation Median, Column `Price` |
+| 70 | Home → Merge Queries with `SKU_Description` on `StockCode`, Left Outer → expand `Description` only, untick *Use original column name as prefix* |
+| 70b | `Dim_SKU`: Source = `SKU_Attributes` → Merge Queries with `Excel_SKU_Policy` on `StockCode`, Left Outer → expand the seven `_Excel` columns |
 
 Median, not average - a single wholesale line at a discounted price would drag a mean well below the item's normal selling price, and unit cost is derived from this figure.
 
@@ -330,7 +348,8 @@ Open View → Applied Steps and read the row count in the status bar after each 
 | Remove invoice 541431 | 1,014,944 | −1 |
 | Keep 52 complete weeks | 500,376 | −514,568 |
 | Group to SKU × week | 96,033 | - |
-| Zero-filled grid | 196,300 | +100,267 |
+| Append the zero-week seed | 96,034 | +1 |
+| Zero-filled grid | 196,300 | +100,266 |
 | Excel top-500 scope | 26,000 | - |
 
 A mismatch at any line means a step was applied out of order or a filter used the wrong comparison. Fix it there - do not carry it forward.
@@ -381,7 +400,7 @@ They must match exactly. Record the comparison in [`../docs/validation.md`](../d
 
 ### 10.6 Before you click Close & Load
 
-- [ ] Every query renamed (`Sales_Raw`, `Weekly_Sold`, `Fact_WeeklyDemand`, `Dim_SKU`, `Excel_Top500_Wide`)
+- [ ] Every query renamed (`Sales_Raw`, `Weekly_Sold`, `Zero_Week_Seed`, `Fact_WeeklyDemand`, `SKU_Description`, `SKU_Attributes`, `Dim_SKU`, `Dim_Week`, `Excel_Top500_Wide`)
 - [ ] Every Applied Step renamed to something a reader understands
 - [ ] Staging queries set to Enable load = off
 - [ ] All 11 row counts in §10.1 confirmed
@@ -419,4 +438,4 @@ Merged revenue
 Set final data types
 ```
 
-**Twenty steps, zero typed formulas.** Anyone opening this query can see exactly what was done to the data and why - which is the entire argument for doing it in the ribbon rather than in code.
+**Twenty-odd steps, and one typed formula that is named where it appears.** Anyone opening this query can see exactly what was done to the data and why - which is the entire argument for doing it in the ribbon rather than in code.
