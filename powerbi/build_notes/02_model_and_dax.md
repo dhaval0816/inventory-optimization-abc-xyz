@@ -36,7 +36,7 @@ Measures:      _Measures
 |---|---|---|---|
 | `Fact_WeeklyDemand` | 196,300 | Power Query | Units and revenue per SKU per week, zero-filled |
 | `Dim_SKU` | 3,775 | Power Query + 17 DAX columns | SKU attributes, simulated inputs, classification, Excel reconciliation columns |
-| `Dim_Week` | 52 | Power Query | Week calendar, 6 Dec 2010 to 28 Nov 2011 |
+| `Dim_Week` | 52 | Power Query + 5 DAX columns | Week calendar, 6 Dec 2010 to 28 Nov 2011 |
 | `Service Level` | 40 | `GENERATESERIES(0.8, 0.995, 0.005)` | Uniform service level slider |
 | `Lead Time Change` | 7 | `GENERATESERIES(-2, 4, 1)` | Supplier delay stress test, weeks |
 | `Ordering Cost` | 9 | `GENERATESERIES(20, 100, 10)` | Cost per purchase order, £ |
@@ -75,7 +75,23 @@ Power Query only shapes the data. Every step is a ribbon command (see [`../../po
 | `Excel_SKU_Policy` | no | The workbook's `SKU_Policy` sheet |
 | `Fact_WeeklyDemand` | yes | Full 3,775 x 52 grid, zero-filled by pivot, replace nulls, unpivot |
 | `Dim_SKU` | yes | `SKU_Attributes` merged with `Excel_SKU_Policy` |
-| `Dim_Week` | yes | Distinct weeks with week number, month and quarter |
+| `Zero_Week_Seed` | no | One zero-demand row so the 27 Dec 2010 week survives the pivot |
+| `SKU_Description` | no | Most frequent description per SKU (Group By, Sort, Remove Duplicates) |
+| `Dim_Week` | yes | Distinct weeks from the fact grid, with a ribbon Index column as `Week No` |
+
+### Dim_Week's derived columns are DAX
+
+`WeekStart` and `Week No` come from Power Query (distinct values, sorted, Index column). The rest are DAX calculated columns, because the Power Query ribbon has no command that adds days to a date or formats one as `MMM yyyy`:
+
+```dax
+WeekEnd     = Dim_Week[WeekStart] + 6
+Month       = FORMAT ( Dim_Week[WeekStart], "MMM yyyy" )
+MonthSort   = YEAR ( Dim_Week[WeekStart] ) * 100 + MONTH ( Dim_Week[WeekStart] )
+Quarter     = "Q" & QUARTER ( Dim_Week[WeekStart] ) & " " & YEAR ( Dim_Week[WeekStart] )
+QuarterSort = YEAR ( Dim_Week[WeekStart] ) * 10 + QUARTER ( Dim_Week[WeekStart] )
+```
+
+`Month` is sorted by `MonthSort` and `Quarter` by `QuarterSort`, both set through Column tools -> Sort by column.
 
 ---
 

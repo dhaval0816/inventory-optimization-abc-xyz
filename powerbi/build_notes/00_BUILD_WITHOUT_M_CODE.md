@@ -12,7 +12,7 @@ This is the primary build path for the project. Follow it end to end and you wil
 
 **Power Query does only ribbon-clickable work. Everything derived moves to DAX calculated columns.**
 
-**No M code is written, pasted or edited anywhere in the build** - no *Custom Column* formulas, no *Advanced Editor*. Power Query stores each click as a step internally; every one of those steps comes from a menu.
+**The Advanced Editor is never opened, and exactly one *Custom Column* formula is typed in the whole build** - the Monday week-start in Part 2, step 17, for the reason given there. Power Query stores each click as a step internally; every other one of those steps comes from a menu.
 
 Where the ribbon runs out, the work moves to DAX rather than to hand-written M:
 
@@ -22,7 +22,7 @@ Where the ribbon runs out, the work moves to DAX rather than to hand-written M:
 | Rounding that matches Excel | The ribbon's *Round* uses banker's rounding (round-half-to-even); Excel's `ROUND` rounds half away from zero | DAX `ROUND` matches Excel, so the simulated on-hand agrees with the workbook |
 | Simulated lead time / on hand / unit cost | Needs `MOD`, lookup and branching logic | Calculated columns with the logic visible in the model |
 
-**The principle in one line:** Power Query shapes the data; DAX derives from it. That split is what keeps the ETL 100% ribbon.
+**The principle in one line:** Power Query shapes the data; DAX derives from it. That split is what keeps the ETL to ribbon commands and a single typed formula.
 
 ---
 
@@ -41,7 +41,7 @@ Where the ribbon runs out, the work moves to DAX rather than to hand-written M:
 
 ### 1.0 Set the locale first
 
-**File → Options and settings → Options → Current File → Regional Settings → Locale for import: English (United Kingdom).** UK dates read as dd/mm, and the ribbon's *Start of Week* (Part 2, step 17) returns Monday - which is what removes the need for a typed week formula.
+**File → Options and settings → Options → Current File → Regional Settings → Locale for import: English (United Kingdom).** This is a UK retailer, so `InvoiceDate` must parse as dd/mm rather than mm/dd. The locale affects date *parsing* only - it does not decide which day a week starts on (see Part 2, step 17).
 
 ### 1.1 Connect and stage
 
@@ -86,13 +86,13 @@ Full click-by-click detail, with the row count after every step: [`../../powerqu
 | 14 | Keep 5-digit product codes | Add Column → Extract → First Characters (5) → type Whole Number → Remove Errors → delete helper column | 1,014,945 |
 | 15 | Remove invoice `541431` | Filter - 74,215-unit line whose credit note was already removed | 1,014,944 |
 | 16 | Add `LineRevenue` | Select `Quantity` + `Price` → Add Column → Standard → Multiply | - |
-| 17 | Add `WeekStart` | Add Column → Date → Week → Start of Week → rename `WeekStart`, type Date · verify with Add Column → Date → Day → Name of Day = Monday only, then delete the helper | - |
+| 17 | Add `WeekStart` | Add Column → Custom Column → name `WeekStart`, formula `Date.StartOfWeek([InvoiceDate], Day.Monday)` → type Date · verify with Add Column → Date → Day → Name of Day = Monday only, then delete the helper | - |
 | 18 | Keep 52 complete weeks | `WeekStart` → Date Filters → Between `06/12/2010` … `28/11/2011` | 500,376 |
 | 19 | Group to SKU × week | Transform → Group By (Advanced): `StockCode` + `WeekStart`; Sum `Quantity` → `Units`, Sum `LineRevenue` → `Revenue` | 96,033 |
 
 **Step 14 is the useful trick.** "Keep rows where the first five characters are numeric" normally needs a `try … otherwise` expression. Extracting five characters, converting to a number, and clicking Remove Errors does the same job with three ribbon commands - the failed conversions *are* the filter.
 
-**Step 17 depends on the locale set in 1.0.** The ribbon's *Start of Week* uses the query locale's first day of the week - Monday for English (United Kingdom), Sunday for `en-US`. A Sunday-start week shifts every weekly boundary and silently changes every total, so the *Name of Day* check is not optional: it is what makes a one-click step trustworthy.
+**Step 17 is the one typed formula, and the reason is worth knowing.** The obvious command is *Add Column → Date → Week → Start of Week*, and it is wrong here: it calls `Date.StartOfWeek` without the optional first-day argument, which defaults to **Sunday** in M. The query locale does not override it. On this dataset a Sunday week drops the 6–12 Dec 2010 week out of the 52-week window entirely and moves every σ, safety stock and ABC class in the model. The *Custom Column* dialog with `Day.Monday` is the correct fix, and the *Name of Day* check is what proves it took.
 
 ### 2.1 The zero-fill - three clicks that make the model correct
 
@@ -271,8 +271,9 @@ Every page uses the same frame, so the report reads as one object:
 ## Build Checklist
 
 - [ ] Query locale set to English (United Kingdom)
-- [ ] No *Custom Column* or *Advanced Editor* edits in any query - Applied Steps are ribbon steps only
+- [ ] No *Advanced Editor* edits in any query; exactly one *Custom Column* (`WeekStart`)
 - [ ] `WeekStart` verified Monday-only with *Name of Day*
+- [ ] `Zero_Week_Seed` present and appended - the 27 Dec 2010 week survives the pivot
 - [ ] Sheet overlap removed - 1,044,848 rows after append
 - [ ] All 11 row counts match [`../../docs/data_quality.md`](../../docs/data_quality.md)
 - [ ] Fact grid = 196,300 rows, 3,775 SKUs × 52 weeks
