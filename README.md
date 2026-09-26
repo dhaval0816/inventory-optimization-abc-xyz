@@ -103,8 +103,9 @@ The company was ordering by feel. Every buyer had their own mental rule, none of
 
 A star schema: two dimensions filtering one fact table in a single direction, plus disconnected what-if parameter tables that drive the simulator without contaminating the filter context.
 
-<!-- SCREENSHOT: images/05_data_model.png - Power BI Model view -->
-<!-- ![Data Model](images/05_data_model.png) -->
+![Data Model](images/05_data_model.png)
+
+*Power BI Model view. The `Dim_Week` and `Dim_SKU` keys filter `Fact_WeeklyDemand` one way only; the what-if parameter tables sit on the default layout tab, unrelated to anything by design.*
 
 ```
                  ┌──────────────────┐         ┌──────────────────┐
