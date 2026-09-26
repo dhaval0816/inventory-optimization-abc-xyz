@@ -150,7 +150,7 @@ Both worksheets contain the first nine days of December 2010. A plain append cou
 
 **Why it matters more than 2% suggests.** The duplication is not spread evenly - it is concentrated in nine consecutive days that fall inside the 52-week modelling window, in the first two weeks of that window. For any SKU selling in that period, those weeks read as roughly double their true demand. That inflates the mean, inflates σ, and inflates safety stock - and it does so in a way that looks entirely plausible on a dashboard. A duplicate that produces an obviously wrong number is harmless; one that produces a believable wrong number is not.
 
-**Treatment:** removed as an explicit, named step (`Removed sheet overlap`) before any other filter, so a reviewer can see in the Applied Steps pane that the issue was known and handled.
+**Treatment:** removed as an explicit, named step - `NoOverlap`, in the `Sales_2009_2010` staging query - before any other filter, so a reviewer can see in the Applied Steps pane that the issue was known and handled rather than removed as a side effect of a later date filter.
 
 ### 4.2 Legitimate repeated rows
 
