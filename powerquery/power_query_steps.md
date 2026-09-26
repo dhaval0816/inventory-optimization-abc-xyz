@@ -65,9 +65,9 @@ Remove the overlap on the first sheet's staging query, so `Sales_Raw` (which is 
 |---|---|---|
 | 12 | In the Queries pane, select the staging query `Year 2009-2010` | |
 | 13 | `InvoiceDate` filter arrow → Date/Time Filters → Before… → `01/12/2010 00:00:00` → OK | The 1–9 Dec 2010 rows leave this sheet only; the `Year 2010-2011` sheet keeps them |
-| 13b | Rename this step `Removed sheet overlap`, then select `Sales_Raw` again | `Sales_Raw` now reads 1,044,848 rows - 22,523 duplicated rows removed |
+| 13b | Rename this step `NoOverlap`, then select `Sales_Raw` again | `Sales_Raw` now reads 1,044,848 rows - 22,523 duplicated rows removed |
 
-An explicit, named step is visible in the Applied Steps pane, so a reviewer can see the duplication was known and handled - rather than removed as a side effect of a later date filter.
+This is one of the few steps worth renaming. It sits in a staging query where `Filtered Rows` would tell a reviewer nothing, and the duplication it fixes is the single most expensive mistake available in this dataset - so the step says what it is. In the shipped file the step is named `NoOverlap`.
 
 ---
 
@@ -109,7 +109,7 @@ Cancelled invoices carry a leading `C` and negative quantities. They are reversa
 | 23 | `Invoice` filter arrow → Text Filters → Does Not Begin With… | |
 | 24 | Enter `C` → OK | 1,025,683 rows (−19,165) |
 
-Rename: `Removed cancellations`.
+Leave the step name as Power Query wrote it - `Filtered Rows`. Renaming it to something friendlier would hide the fact that it is a plain ribbon filter, which is the thing being demonstrated. The narrative lives in this document; the pane stays literal.
 
 ### 3.2 Remove non-positive quantities
 
@@ -142,7 +142,7 @@ The source mixes products with service codes: `POST` (postage), `M` (manual), `D
 | 33 | Select the new column → Home → Reduce Rows → Remove Rows → Remove Errors | Every non-product row disappears. 1,014,945 rows |
 | 34 | Right-click `First Characters` → Remove | Helper column gone; the filter it performed stays |
 
-Rename: `Kept 5-digit product codes`. This is the technique that replaces a typed `try … otherwise null` expression - Remove Errors is a ribbon button doing the work of an error-handling formula.
+The pane now reads `Inserted First Characters` → `Changed Type` → `Removed Errors` → `Removed Columns`, all default names, and that sequence is the point: it is the technique that replaces a typed `try … otherwise null` expression. *Remove Errors* is a ribbon button doing the work of an error-handling formula, and the default step names prove no formula was involved.
 
 ### 3.5 Remove the one invoice that distorts everything
 
@@ -318,6 +318,8 @@ Why these are DAX columns and not Power Query steps:
 
 For the Excel workbook only - the top 500 SKUs by annual revenue, 67.5% of portfolio revenue.
 
+**Where this step runs.** Not in the Power BI file. Power BI Desktop cannot *Close & Load To* an Excel workbook, so this export is built in **Excel's own Power Query** (Data → Get Data), pointing at the same source workbook and repeating steps 1–70. That is why `Excel_Top500_Wide` appears in the Excel workbook's query list and *not* in the Power BI query list - the .pbip carries `Sales_2009_2010`, `Sales_2010_2011`, `Sales_Raw`, `Weekly_Sold`, `Zero_Week_Seed`, `SKU_Description`, `SKU_Attributes`, `Excel_SKU_Policy`, `Fact_WeeklyDemand`, `Dim_SKU` and `Dim_Week`, plus the two parameters.
+
 | # | Click | Result |
 |---|---|---|
 | 71 | Duplicate `Fact_WeeklyDemand` → rename `Excel_Top500_Wide` | |
@@ -400,7 +402,7 @@ They must match exactly. Record the comparison in [`../docs/validation.md`](../d
 
 ### 10.6 Before you click Close & Load
 
-- [ ] Every query renamed (`Sales_Raw`, `Weekly_Sold`, `Zero_Week_Seed`, `Fact_WeeklyDemand`, `SKU_Description`, `SKU_Attributes`, `Dim_SKU`, `Dim_Week`, `Excel_Top500_Wide`)
+- [ ] Every query renamed - in Power BI: `Sales_2009_2010`, `Sales_2010_2011`, `Sales_Raw`, `Weekly_Sold`, `Zero_Week_Seed`, `SKU_Description`, `SKU_Attributes`, `Excel_SKU_Policy`, `Fact_WeeklyDemand`, `Dim_SKU`, `Dim_Week`; in the Excel workbook: `Excel_Top500_Wide`
 - [ ] Every Applied Step renamed to something a reader understands
 - [ ] Staging queries set to Enable load = off
 - [ ] All 11 row counts in §10.1 confirmed
@@ -413,29 +415,43 @@ They must match exactly. Record the comparison in [`../docs/validation.md`](../d
 
 ## Applied Steps as documentation
 
-When finished, `Fact_WeeklyDemand`'s Applied Steps pane should read as a plain-English audit trail:
+Step names are left exactly as Power Query generated them, and that is a deliberate choice. A default name like `Unpivoted Other Columns` names the ribbon command that produced it; a friendlier name like `Unpivoted weeks` reads better but erases the evidence. The explanation belongs in this document. The pane stays literal.
+
+`Sales_Raw` - the cleaning chain, as shipped:
 
 ```
-Source
-Promoted Headers
-Appended both sheets        ← overlap already removed in the Year 2009-2010 staging query
-Set data types
-Removed unused columns
-Removed cancellations
-Removed zero and negative quantity
-Removed zero and negative price
-Trimmed and uppercased StockCode
-Kept 5-digit product codes
-Removed reversed bulk invoice 541431
-Added LineRevenue
-Added WeekStart
-Kept 52 complete weeks
-Grouped to SKU and week
-Pivoted weeks
-Replaced null with zero
-Unpivoted weeks
-Merged revenue
-Set final data types
+Appended                        ← Append Queries; overlap already removed in Sales_2009_2010
+Filtered Rows                   ← Invoice does not begin with "C"  (cancellations)
+Filtered Rows1                  ← Quantity > 0
+Filtered Rows2                  ← Price > 0
+Trimmed Text                    ← Transform → Format → Trim
+Uppercased Text                 ← Transform → Format → UPPERCASE
+Inserted First Characters       ← Extract → First Characters, 5
+Changed Type                    ← type to Whole Number, non-numeric prefixes become errors
+Removed Errors                  ← the error-handling filter, no try … otherwise needed
+Removed Columns                 ← helper column dropped, its filter kept
+Filtered Rows3                  ← invoice 541431 excluded
+Added Custom                    ← THE ONE TYPED FORMULA: Date.StartOfWeek([InvoiceDate], Day.Monday)
+Changed Type1                   ← WeekStart set to Date
+Filtered Rows4                  ← the 52 complete weeks, 6 Dec 2010 to 28 Nov 2011
+Inserted Multiplication         ← Add Column → Standard → Multiply
+Renamed Columns                 ← Multiplication → LineRevenue
 ```
 
-**Twenty-odd steps, and one typed formula that is named where it appears.** Anyone opening this query can see exactly what was done to the data and why - which is the entire argument for doing it in the ribbon rather than in code.
+`Fact_WeeklyDemand` - the grid build, as shipped:
+
+```
+WS                              ← reference to Weekly_Sold
+Removed Columns                 ← Revenue dropped, it is merged back at the end
+Appended Query                  ← Zero_Week_Seed, so 27 Dec 2010 survives the pivot
+Pivoted Column                  ← WeekStart across, Units as values, Don't Aggregate
+Replaced Value                  ← null → 0, the zero-fill
+Unpivoted Other Columns         ← back to long form, now with the zeros in it
+Renamed Columns
+Changed Type
+Merged Queries                  ← Weekly_Sold, for Revenue
+Expanded Weekly_Sold
+Replaced Value1                 ← null → 0 on the merged Revenue
+```
+
+**Twenty-seven steps across the two queries, and one typed formula - `Added Custom` - named on the line where it appears.** Anyone opening these queries can see exactly what was done to the data, and can tell from the step names alone that a ribbon button did it. That is the entire argument for building the ETL in the ribbon rather than in code.
