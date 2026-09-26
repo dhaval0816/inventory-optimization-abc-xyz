@@ -142,7 +142,7 @@ A star schema: two dimensions filtering one fact table in a single direction, pl
 | Parameter tables | - | Disconnected by design; read with `SELECTEDVALUE`, never related |
 | `_Measures` | - | Holds the 80 report measures, in 7 display folders |
 
-**Build shape:** 13 tables · 84 measures · 17 DAX calculated columns · 6 report pages (5 analysis pages plus a reconciliation page).
+**Build shape:** 13 tables · 84 measures · 22 DAX calculated columns (17 on `Dim_SKU`, 5 on `Dim_Week`) · 6 report pages (5 analysis pages plus a reconciliation page).
 
 **Design decision worth defending:** Power Query is used only for what the ribbon can do - import, type, filter, group, pivot and unpivot. All derived per-SKU logic (unit cost, lead time, on-hand, ABC, XYZ, cumulative value share) lives in DAX calculated columns. Two reasons: a running total (needed for ABC) has no ribbon button in Power Query and would have meant writing M by hand, while in DAX it is a single calculated column computed once at refresh; and DAX `ROUND` matches Excel's rounding, whereas the Power Query ribbon's *Round* uses banker's rounding - which would have made the simulated on-hand disagree with the workbook. Full reasoning in [`powerbi/build_notes/00_BUILD_WITHOUT_M_CODE.md`](powerbi/build_notes/00_BUILD_WITHOUT_M_CODE.md).
 
@@ -372,7 +372,7 @@ Power BI's DAX service-level curve reproduces the same two figures over the same
 
 ## Dashboard Pages
 
-Five pages, each titled as a question, each with KPI cards on top and one written insight box that composes its own sentence from the current slider state. Full build specification: [`powerbi/build_notes/03_dashboard_build.md`](powerbi/build_notes/03_dashboard_build.md).
+Six pages, each titled as a question, each with KPI cards on top and one written insight box that composes its own sentence from the current slider state. Full build specification: [`powerbi/build_notes/03_dashboard_build.md`](powerbi/build_notes/03_dashboard_build.md).
 
 | # | Page | Question it answers | Core visuals |
 |---|---|---|---|
@@ -491,7 +491,7 @@ Every assumption is labelled at the point of use, in the workbook and on the rep
 |---|---|---|
 | Extraction & transformation | Power Query (Excel + Power BI Desktop) | Append, filter, type, group, pivot/unpivot zero-fill - ribbon commands throughout, one typed Custom Column |
 | Policy modelling | Microsoft Excel - formulas, structured tables, PivotTables, data tables | `NORM.S.INV`, `STDEV.S`, `ROUNDUP`, `INDEX`/`MATCH`, one-way and two-way sensitivity tables |
-| Semantic model | Power BI Desktop 2.157, star schema, PBIP/TMDL | 13 tables, 17 DAX calculated columns |
+| Semantic model | Power BI Desktop 2.157, star schema, PBIP/TMDL | 13 tables, 22 DAX calculated columns |
 | Analytics language | DAX | 84 measures across 7 display folders; `SUMX` iteration, `CALCULATE`, context transition, what-if parameters, `TREATAS` |
 | Report | Power BI PBIR format (`definition/`, one JSON per visual) | 6 pages, what-if parameters, drill-through, custom JSON theme |
 | Design system | `theme_inventory_teal.json` | 8 categorical hues validated for colour-vision deficiency; reserved status colours |
@@ -524,14 +524,15 @@ inventory-optimization-abc-xyz/
 │   └── inventory_policy_calculator.xlsx   ← the policy model: 8 sheets, all formulas
 │
 ├── powerbi/
+│   ├── PROJECT_FILES.md                  ← read first: how the PBIP pieces fit, and what to open
 │   ├── Inventory Optimization.pbip        ← open this in Power BI Desktop
-│   ├── Inventory Optimization.SemanticModel/   ← TMDL: tables, columns, measures
-│   ├── Inventory Optimization.Report/          ← PBIR: definition/, one JSON per visual
+│   ├── Inventory Optimization.SemanticModel/   ← TMDL: tables, columns, measures, queries
+│   ├── Inventory Optimization.Report.zip  ← PBIR: unzip beside the .pbip as "Inventory Optimization.Report/"
 │   ├── theme_inventory_teal.json          ← report theme (View → Themes → Browse)
-│   ├── inventory_optimization.pdf         ← static export of all report pages
+│   ├── inventory_optimization.pdf         ← static export of all six report pages
 │   └── build_notes/
 │       ├── 00_BUILD_WITHOUT_M_CODE.md     ← rebuild the model from clicks, start to finish
-│       ├── 02_model_and_dax.md            ← star schema, all 53 measures, KPI logic
+│       ├── 02_model_and_dax.md            ← star schema, all 84 measures, KPI logic
 │       └── 03_dashboard_build.md          ← page-by-page visual, field and format spec
 │
 ├── images/
