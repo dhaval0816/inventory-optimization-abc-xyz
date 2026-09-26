@@ -1,0 +1,18 @@
+relationship 038785b4-c40a-419e-b840-dbce2edad6b5
+	fromColumn: Fact_WeeklyDemand.StockCode
+	toColumn: Dim_SKU.StockCode
+
+relationship bf82630f-2e5a-446a-bad9-30b67aea6c20
+	joinOnDateBehavior: datePartOnly
+	fromColumn: Dim_Week.WeekStart
+	toColumn: LocalDateTable_c7d6e718-7a7b-4170-b4b5-2445670b7a5d.Date
+
+relationship 6dfec951-2d5f-dcef-4199-359f756e2261
+	fromColumn: Fact_WeeklyDemand.WeekStart
+	toColumn: Dim_Week.WeekStart
+
+relationship f6e1f99d-6804-485c-b076-c10a19dfefd5
+	joinOnDateBehavior: datePartOnly
+	fromColumn: Dim_Week.WeekEnd
+	toColumn: LocalDateTable_e7076d66-4de1-4266-b072-fa777b786793.Date
+

@@ -1,0 +1,31 @@
+model Model
+	culture: en-GB
+	defaultPowerBIDataSourceVersion: powerBI_V3
+	sourceQueryCulture: en-CA
+	dataAccessOptions
+		legacyRedirects
+		returnErrorValuesAsNull
+
+annotation PBI_QueryOrder = ["SourceFile","ExcelModelFile","Sales_2009_2010","Sales_2010_2011","Sales_Raw","SKU_Attributes","Excel_SKU_Policy","Fact_WeeklyDemand","Dim_SKU","Dim_Week","Weekly_Sold","Zero_Week_Seed","SKU_Description"]
+
+annotation PBI_ProTooling = ["DevMode"]
+
+annotation __PBI_TimeIntelligenceEnabled = 1
+
+ref table Fact_WeeklyDemand
+ref table Dim_SKU
+ref table Dim_Week
+ref table 'Service Level'
+ref table 'Lead Time Change'
+ref table 'Ordering Cost'
+ref table 'Holding Cost %'
+ref table 'Service Level Curve'
+ref table 'SL Mode'
+ref table 'Status List'
+ref table 'Action View'
+ref table 'Segment Policy'
+ref table _Measures
+ref table DateTableTemplate_a4d3d52d-b8f5-4169-a262-576dd1b57a43
+ref table LocalDateTable_c7d6e718-7a7b-4170-b4b5-2445670b7a5d
+ref table LocalDateTable_e7076d66-4de1-4266-b072-fa777b786793
+

@@ -1,0 +1,152 @@
+/// Parameter - edit this one value when the file moves to another machine.
+expression SourceFile = "C:\Users\Dhava\Downloads\PROJECT 2 GIT HUB\online+retail+ii\online_retail_II.xlsx" meta [IsParameterQuery=true, Type="Text", IsParameterQueryRequired=true]
+	lineageTag: a76748f1-9593-4571-a494-fe74c41ef3f9
+
+	annotation PBI_NavigationStepName = Navigation
+
+	annotation PBI_ResultType = Text
+
+/// Parameter - edit this one value when the file moves to another machine.
+expression ExcelModelFile = "C:\Users\Dhava\Downloads\PROJECT 2 GIT HUB\inventory_policy_calculator_1.xlsx" meta [IsParameterQuery=true, Type="Text", IsParameterQueryRequired=true]
+	lineageTag: 31b59807-5f72-4f67-9bf6-22e175cc0263
+
+	annotation PBI_NavigationStepName = Navigation
+
+	annotation PBI_ResultType = Text
+
+expression Sales_2009_2010 =
+		let
+		    Source   = Excel.Workbook(File.Contents(SourceFile), null, true),
+		    Sheet    = Source{[Item = "Year 2009-2010", Kind = "Sheet"]}[Data],
+		    Promoted = Table.PromoteHeaders(Sheet, [PromoteAllScalars = true]),
+		    Typed    = Table.TransformColumnTypes(Promoted, {
+		                   {"Invoice", type text}, {"StockCode", type text}, {"Description", type text},
+		                   {"Quantity", Int64.Type}, {"InvoiceDate", type datetime}, {"Price", type number},
+		                   {"Customer ID", Int64.Type}, {"Country", type text}}),
+		    NoOverlap = Table.SelectRows(Typed, each [InvoiceDate] < #datetime(2010, 12, 1, 0, 0, 0))
+		in
+		    NoOverlap
+	lineageTag: 0e6418ec-e422-4274-ab0d-2b81fc3e2916
+
+	annotation PBI_ResultType = Table
+
+	annotation PBI_NavigationStepName = Navigation
+
+expression Sales_2010_2011 =
+		let
+		    Source   = Excel.Workbook(File.Contents(SourceFile), null, true),
+		    Sheet    = Source{[Item = "Year 2010-2011", Kind = "Sheet"]}[Data],
+		    Promoted = Table.PromoteHeaders(Sheet, [PromoteAllScalars = true]),
+		    Typed    = Table.TransformColumnTypes(Promoted, {
+		                   {"Invoice", type text}, {"StockCode", type text}, {"Description", type text},
+		                   {"Quantity", Int64.Type}, {"InvoiceDate", type datetime}, {"Price", type number},
+		                   {"Customer ID", Int64.Type}, {"Country", type text}})
+		in
+		    Typed
+	lineageTag: 06bcc131-46cd-46c4-a6b1-fa7cc83105cf
+
+	annotation PBI_ResultType = Table
+
+expression Sales_Raw =
+		let
+		    Appended    = Table.Combine({Sales_2009_2010, Sales_2010_2011}),
+		    #"Filtered Rows" = Table.SelectRows(Appended, each not Text.StartsWith([Invoice], "C")),
+		    #"Filtered Rows1" = Table.SelectRows(#"Filtered Rows", each [Quantity] > 0),
+		    #"Filtered Rows2" = Table.SelectRows(#"Filtered Rows1", each [Price] > 0),
+		    #"Trimmed Text" = Table.TransformColumns(#"Filtered Rows2",{{"StockCode", Text.Trim, type text}}),
+		    #"Uppercased Text" = Table.TransformColumns(#"Trimmed Text",{{"StockCode", Text.Upper, type text}}),
+		    #"Inserted First Characters" = Table.AddColumn(#"Uppercased Text", "First Characters", each Text.Start([StockCode], 5), type text),
+		    #"Changed Type" = Table.TransformColumnTypes(#"Inserted First Characters",{{"First Characters", Int64.Type}}),
+		    #"Removed Errors" = Table.RemoveRowsWithErrors(#"Changed Type", {"First Characters"}),
+		    #"Removed Columns" = Table.RemoveColumns(#"Removed Errors",{"First Characters"}),
+		    #"Filtered Rows3" = Table.SelectRows(#"Removed Columns", each [Invoice] <> "541431"),
+		    #"Added Custom" = Table.AddColumn(#"Filtered Rows3", "WeekStart", each Date.StartOfWeek([InvoiceDate], Day.Monday)),
+		    #"Changed Type1" = Table.TransformColumnTypes(#"Added Custom",{{"WeekStart", type date}}),
+		    #"Filtered Rows4" = Table.SelectRows(#"Changed Type1", each [WeekStart] >= #date(2010, 12, 6) and [WeekStart] <= #date(2011, 11, 28)),
+		    #"Inserted Multiplication" = Table.AddColumn(#"Filtered Rows4", "Multiplication", each [Quantity] * [Price], type number),
+		    #"Renamed Columns" = Table.RenameColumns(#"Inserted Multiplication",{{"Multiplication", "LineRevenue"}})
+		in
+		    #"Renamed Columns"
+	lineageTag: cc2dacb1-f5af-4416-9c4e-20a6a9fe02fe
+
+	annotation PBI_ResultType = Table
+
+	annotation PBI_NavigationStepName = Navigation
+
+expression SKU_Attributes =
+		let
+		    Source = Sales_Raw,
+		    #"Grouped Rows" = Table.Group(Source, {"StockCode"}, {{"MedianPrice", each List.Median([Price]), type nullable number}}),
+		    #"Merged Queries" = Table.NestedJoin(#"Grouped Rows", {"StockCode"}, SKU_Description, {"StockCode"}, "SKU_Description", JoinKind.LeftOuter),
+		    #"Expanded SKU_Description" = Table.ExpandTableColumn(#"Merged Queries", "SKU_Description", {"Description"}, {"Description"})
+		in
+		    #"Expanded SKU_Description"
+	lineageTag: 52d849c3-9d04-451c-96e6-cdf1f1b5f881
+
+	annotation PBI_ResultType = Table
+
+	annotation PBI_NavigationStepName = Navigation
+
+expression Excel_SKU_Policy =
+		let
+		    Source   = Excel.Workbook(File.Contents(ExcelModelFile), null, true),
+		    Sheet    = Source{[Item = "SKU_Policy", Kind = "Sheet"]}[Data],
+		    Skipped  = Table.Skip(Sheet, 3),
+		    Promoted = Table.PromoteHeaders(Skipped, [PromoteAllScalars = true]),
+		    Kept     = Table.SelectColumns(Promoted, {"SKU", "ABC Class", "XYZ Class", "On Hand (simulated)",
+		                                              "Safety Stock (units)", "Reorder Point (units)",
+		                                              "EOQ (units)", "Target Service Level"}),
+		    NoBlank  = Table.SelectRows(Kept, each [SKU] <> null and [SKU] <> ""),
+		    Renamed  = Table.RenameColumns(NoBlank, {
+		                   {"SKU", "StockCode"}, {"ABC Class", "ABC_Excel"}, {"XYZ Class", "XYZ_Excel"},
+		                   {"On Hand (simulated)", "OnHand_Excel"}, {"Safety Stock (units)", "SS_Excel"},
+		                   {"Reorder Point (units)", "ROP_Excel"}, {"EOQ (units)", "EOQ_Excel"},
+		                   {"Target Service Level", "SL_Excel"}}),
+		    Typed    = Table.TransformColumnTypes(Renamed, {
+		                   {"StockCode", type text}, {"ABC_Excel", type text}, {"XYZ_Excel", type text},
+		                   {"OnHand_Excel", Int64.Type}, {"SS_Excel", Int64.Type}, {"ROP_Excel", Int64.Type},
+		                   {"EOQ_Excel", Int64.Type}, {"SL_Excel", type number}})
+		in
+		    Typed
+	lineageTag: 49b7741c-2a03-41ee-b282-e2c66cdb2218
+
+	annotation PBI_ResultType = Table
+
+expression Weekly_Sold =
+		let
+		    Source = Sales_Raw,
+		    #"Grouped Rows" = Table.Group(Source, {"StockCode", "WeekStart"}, {{"Units", each List.Sum([Quantity]), type nullable number}, {"Revenue", each List.Sum([LineRevenue]), type number}})
+		in
+		    #"Grouped Rows"
+	lineageTag: 24ae4ec0-84ea-4cf7-8289-3349f64e0064
+
+	annotation PBI_NavigationStepName = Navigation
+
+	annotation PBI_ResultType = Table
+
+expression Zero_Week_Seed =
+		let
+		    Source = Table.FromRows(Json.Document(Binary.Decompress(Binary.FromText("i45WMjQwMDBS0lEyMjA00DU00jUyB3IMlGJjAQ==", BinaryEncoding.Base64), Compression.Deflate)), let _t = ((type nullable text) meta [Serialized.Text = true]) in type table [StockCode = _t, WeekStart = _t, Units = _t]),
+		    #"Changed Type" = Table.TransformColumnTypes(Source,{{"StockCode", type text}, {"WeekStart", type date}, {"Units", Int64.Type}})
+		in
+		    #"Changed Type"
+	lineageTag: d73a35f0-521e-4bb1-885e-9dbdbe0b7da4
+
+	annotation PBI_NavigationStepName = Navigation
+
+	annotation PBI_ResultType = Table
+
+expression SKU_Description =
+		let
+		    Source = Sales_Raw,
+		    #"Grouped Rows" = Table.Group(Source, {"StockCode", "Description"}, {{"n", each Table.RowCount(_), Int64.Type}}),
+		    #"Sorted Rows" = Table.Sort(#"Grouped Rows",{{"StockCode", Order.Ascending}, {"n", Order.Descending}}),
+		    #"Removed Duplicates" = Table.Distinct(#"Sorted Rows", {"StockCode"})
+		in
+		    #"Removed Duplicates"
+	lineageTag: 6d37315f-e323-468f-92b8-61b9dcc6595d
+
+	annotation PBI_NavigationStepName = Navigation
+
+	annotation PBI_ResultType = Table
+
