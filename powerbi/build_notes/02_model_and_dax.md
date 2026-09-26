@@ -2,7 +2,7 @@
 
 Reference for the semantic model in `Inventory Optimization.SemanticModel`. The TMDL files in that folder are the source of truth. This page explains what is in them and why it is built that way.
 
-**Size:** 13 tables, 17 calculated columns, 84 measures (80 in `_Measures`, one on each of the four what-if tables), 7 display folders.
+**Size:** 13 tables, 22 calculated columns (17 on `Dim_SKU`, 5 on `Dim_Week`), 84 measures (80 in `_Measures`, one on each of the four what-if tables), 7 display folders.
 
 ---
 

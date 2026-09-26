@@ -126,7 +126,7 @@ Median, not mean - a single discounted wholesale line would drag a mean well bel
 
 ### 2.3 Stop here
 
-**Do not build `UnitCost`, `LeadTimeWeeks`, `OnHand`, `Category`, `ABC`, `XYZ` or cumulative share in Power Query.** All 17 derived attributes are DAX calculated columns, specified in [`02_model_and_dax.md`](02_model_and_dax.md). Column names match the measure references exactly, so all 53 measures work unchanged.
+**Do not build `UnitCost`, `LeadTimeWeeks`, `OnHand`, `Category`, `ABC`, `XYZ` or cumulative share in Power Query.** All 17 derived attributes are DAX calculated columns, specified in [`02_model_and_dax.md`](02_model_and_dax.md). Column names match the measure references exactly, so all 84 measures work unchanged.
 
 **Home → Close & Apply.** First refresh ≈ 6 minutes.
 
