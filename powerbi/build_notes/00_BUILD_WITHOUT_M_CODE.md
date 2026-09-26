@@ -101,9 +101,10 @@ A SKU that sold nothing in week 14 currently has no row for week 14. Compute σ 
 | # | Click | Result |
 |---|---|---|
 | 20 | Reference `Weekly_Sold` → rename `Fact_WeeklyDemand`; remove `Revenue` | |
+| 20b | Home → Append Queries → `Zero_Week_Seed` | +1 row. The seed is a one-row *Enter Data* query holding `10002` / `2010-12-27` / `0`. Without it the pivot produces 51 week columns, not 52: no SKU sold anything in the week of 27 Dec 2010, so that week has no rows to pivot. Documented in `docs/assumptions.md` |
 | 21 | Select `WeekStart` → Transform → Pivot Column, Values = `Units`, Advanced → Don't Aggregate | 3,775 rows × 52 week columns, gaps are `null` |
-| 22 | Select all 52 week columns → Transform → Replace Values: `null` → `0` | Gaps become real zeros |
-| 23 | With them still selected → Transform → Unpivot Columns; rename `Attribute`→`WeekStart`, `Value`→`Units`; set types | 196,300 rows |
+| 22 | Select all 52 week columns → Transform → Replace Values: `null` → `0` | Gaps become real zeros. This must come *before* the unpivot - `Unpivot Other Columns` silently drops nulls, so unpivoting first would undo the whole point |
+| 23 | Select `StockCode` → Transform → Unpivot Columns → **Unpivot Other Columns**; rename `Attribute`→`WeekStart`, `Value`→`Units`; set types | 196,300 rows |
 | 24 | Merge Queries back to `Weekly_Sold` on `StockCode` + `WeekStart` (Left Outer) → expand `Revenue` → replace `null` with `0` | |
 
 **Use *Don't Aggregate*, never the default Sum.** Sum would silently collapse any duplicate `StockCode` + `WeekStart` pair. After step 19 duplicates should be impossible - and *Don't Aggregate* turns that assumption into a test that fails loudly instead of hiding a defect behind a plausible number.
