@@ -1,0 +1,23 @@
+/// Disconnected what-if parameter. Cycle service level, 80.0% to 99.5% in 0.5pp steps.
+table 'Service Level'
+	lineageTag: 805f0951-67c5-4c1f-a929-95bf25bd448c
+
+	measure 'Service Level Value' = SELECTEDVALUE('Service Level'[Service Level], 0.95)
+		formatString: 0.0%
+		lineageTag: 5f18ffcc-adc6-46d4-91f2-849fa38a3854
+
+	column 'Service Level'
+		dataType: double
+		formatString: 0.0%
+		lineageTag: 44dd2c78-ec19-4afd-b256-25aa1c6756c1
+		summarizeBy: none
+		sourceColumn: [Value]
+
+		annotation SummarizationSetBy = Automatic
+
+	partition 'Service Level' = calculated
+		mode: import
+		source = GENERATESERIES(0.8, 0.995, 0.005)
+
+	annotation PBI_ResultType = Table
+

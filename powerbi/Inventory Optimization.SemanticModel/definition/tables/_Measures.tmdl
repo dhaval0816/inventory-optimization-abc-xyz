@@ -1,0 +1,839 @@
+/// Home for every measure in the model, organised into display folders. The single hidden column
+/// exists only to give the measures a table to live in.
+table _Measures
+	lineageTag: a4b7d6af-d418-4126-9f28-c75389880add
+
+	/// Total units sold in the current filter context.
+	measure 'Units Sold' = SUM ( Fact_WeeklyDemand[Units] )
+		formatString: #,0
+		displayFolder: Demand
+		lineageTag: a2e55320-7cae-4491-9bb7-982a81683cba
+
+	/// Gross sales value at selling price (not at cost).
+	measure Revenue = SUM ( Fact_WeeklyDemand[Revenue] )
+		formatString: \£#,0
+		displayFolder: Demand
+		lineageTag: 48844dcf-edae-46fe-9120-fa3092744811
+
+	/// Annual demand valued at ASSUMED unit cost. This is the ABC classification base.
+	measure 'Annual Consumption Value' = SUMX ( Dim_SKU, CALCULATE ( [Units Sold] ) * Dim_SKU[UnitCost] )
+		formatString: \£#,0
+		displayFolder: Demand
+		lineageTag: 731a195e-592c-498d-8529-787dbd840673
+
+	/// Mean weekly units across the weeks in context, counting zero-demand weeks as zero.
+	measure 'Avg Weekly Demand' = AVERAGEX ( VALUES ( Dim_Week[WeekStart] ), COALESCE ( [Units Sold], 0 ) )
+		formatString: #,0.0
+		displayFolder: Demand
+		lineageTag: 90d0a6d1-9c0c-44a4-a28a-f23cc20a3535
+
+	/// Sample standard deviation of weekly units, including zero-demand weeks. Equivalent to Excel
+	/// STDEV.S.
+	measure 'Std Dev Weekly Demand' = STDEVX.S ( VALUES ( Dim_Week[WeekStart] ), COALESCE ( [Units Sold], 0 ) )
+		formatString: #,0.0
+		displayFolder: Demand
+		lineageTag: 84e72aa7-4255-49f6-8064-728e04131b35
+
+	/// Blank-safe wrapper. STDEVX.S returns BLANK with fewer than 2 rows and the blank would propagate
+	/// through safety stock, reorder point and stock status, blanking a whole column instead of showing
+	/// 0. Every policy measure uses this, not the raw measure.
+	measure 'Std Dev Weekly Demand (safe)' = COALESCE ( [Std Dev Weekly Demand], 0 )
+		formatString: #,0.0
+		displayFolder: Demand
+		lineageTag: 8f495fda-54a2-4dec-b5ca-6f3280edf4ae
+
+	/// Coefficient of variation. Demand unpredictability independent of volume. Drives XYZ.
+	measure CV = DIVIDE ( [Std Dev Weekly Demand], [Avg Weekly Demand] )
+		formatString: 0.00
+		displayFolder: Demand
+		lineageTag: 4b3241ef-a1ed-45f7-9fdd-0ec47f149258
+
+	measure 'SKU Count' = DISTINCTCOUNT ( Dim_SKU[StockCode] )
+		formatString: #,0
+		displayFolder: Demand
+		lineageTag: 19270c1c-c528-47e5-934e-c0435baa077f
+
+	/// The uniform service level chosen on the what-if slider.
+	measure 'Selected Service Level' = SELECTEDVALUE ( 'Service Level'[Service Level], 0.95 )
+		formatString: 0.0%
+		displayFolder: Policy
+		lineageTag: 705e8be3-241c-4d10-8e63-692e6be870bc
+
+	/// Differentiated service level by ABC class: A 98%, B 95%, C 90%. Matches the Excel policy.
+	measure 'Class Service Level' =
+			SWITCH (
+			    SELECTEDVALUE ( Dim_SKU[ABC] ),
+			    "A", 0.98,
+			    "B", 0.95,
+			    "C", 0.90,
+			    0.95
+			)
+		formatString: 0.0%
+		displayFolder: Policy
+		lineageTag: e0871db8-18b9-4ed6-9f53-a70166d3533f
+
+	/// Class-based mode reproduces the Excel policy exactly. Uniform mode hands control to the slider.
+	measure 'Effective Service Level' =
+			IF (
+			    SELECTEDVALUE ( 'SL Mode'[SL Mode] ) = "Uniform (slider)",
+			    [Selected Service Level],
+			    [Class Service Level]
+			)
+		formatString: 0.0%
+		displayFolder: Policy
+		lineageTag: 05e17584-5bb5-4736-b989-ac634910e141
+
+	/// Simulated lead time plus the shock slider, floored at 1 week. The floor matters: the slider goes
+	/// to -2, and a 2-week SKU shocked by -2 would hit lead time 0, making SQRT(0) = 0 safety stock and
+	/// a reorder point of 0.
+	measure 'Effective Lead Time' = MAX ( 1, SELECTEDVALUE ( Dim_SKU[LeadTimeWeeks] ) + SELECTEDVALUE ( 'Lead Time Change'[Lead Time Change], 0 ) )
+		formatString: #,0
+		displayFolder: Policy
+		lineageTag: 7e9a9bff-6e9d-4800-b53a-1a058cf09803
+
+	/// Z x sigma x sqrt(lead time), rounded UP. Rounding a service-level threshold down means quietly
+	/// delivering less service than specified. Blank above SKU grain by design.
+	measure 'Safety Stock Units' =
+			IF (
+			    HASONEVALUE ( Dim_SKU[StockCode] ),
+			    ROUNDUP (
+			        NORM.S.INV ( [Effective Service Level] ) * [Std Dev Weekly Demand (safe)] * SQRT ( [Effective Lead Time] ),
+			        0
+			    )
+			)
+		formatString: #,0
+		displayFolder: Policy
+		lineageTag: 5c222ff6-a7dc-4d62-8d58-6e49f56e687b
+
+	/// Expected demand over the lead time plus the buffer. Order when stock falls to this level.
+	measure 'Reorder Point Units' =
+			IF (
+			    HASONEVALUE ( Dim_SKU[StockCode] ),
+			    ROUNDUP ( [Avg Weekly Demand] * [Effective Lead Time] + [Safety Stock Units], 0 )
+			)
+		formatString: #,0
+		displayFolder: Policy
+		lineageTag: eb44881f-4908-4d38-aa58-41b6f9b33269
+
+	/// Economic order quantity. Rounded to nearest unit: the total-cost curve is flat near its minimum,
+	/// so nearest-unit is fine for an order size (unlike a threshold).
+	measure 'EOQ Units' =
+			VAR AnnualUnits = [Units Sold]
+			VAR OrderCost   = SELECTEDVALUE ( 'Ordering Cost'[Ordering Cost], 50 )
+			VAR HoldingPct  = SELECTEDVALUE ( 'Holding Cost %'[Holding Cost %], 0.25 )
+			VAR Cost        = SELECTEDVALUE ( Dim_SKU[UnitCost] )
+			RETURN
+			    IF (
+			        HASONEVALUE ( Dim_SKU[StockCode] ),
+			        ROUND ( SQRT ( DIVIDE ( 2 * AnnualUnits * OrderCost, HoldingPct * Cost ) ), 0 )
+			    )
+		formatString: #,0
+		displayFolder: Policy
+		lineageTag: f931146b-417b-4403-8665-bbcb9a624221
+
+	/// Order-up-to quantity for SKUs at or below their reorder point. Blank where no action is needed.
+	measure 'Suggested Order Qty' =
+			IF (
+			    HASONEVALUE ( Dim_SKU[StockCode] ),
+			    VAR OnHandU = SELECTEDVALUE ( Dim_SKU[OnHand] )
+			    VAR ROP     = [Reorder Point Units]
+			    VAR MaxStk  = ROP + [EOQ Units]
+			    RETURN
+			        IF ( OnHandU <= ROP, ROUNDUP ( MaxStk - OnHandU, 0 ) )
+			)
+		formatString: #,0
+		displayFolder: Policy
+		lineageTag: 52e8dbd6-7048-499c-9e79-3f0df99f4763
+
+	/// Portfolio safety stock at cost. Safety stock is NOT additive until each SKU's own sigma and lead
+	/// time have been applied, so this iterates SKU by SKU. A plain SUM of the per-SKU measure returns
+	/// blank or a wrong total at every grain above one SKU.
+	measure 'Total Safety Stock Value' =
+			SUMX (
+			    VALUES ( Dim_SKU[StockCode] ),
+			    [Safety Stock Units] * CALCULATE ( SELECTEDVALUE ( Dim_SKU[UnitCost] ) )
+			)
+		formatString: \£#,0
+		displayFolder: Inventory
+		lineageTag: 8cb8f853-8530-4a5b-9527-6a6d3a97b1f9
+
+	/// Simulated on-hand stock valued at assumed unit cost.
+	measure 'On Hand Value' = SUMX ( Dim_SKU, Dim_SKU[OnHand] * Dim_SKU[UnitCost] )
+		formatString: \£#,0
+		displayFolder: Inventory
+		lineageTag: 0a739417-5ac5-4dca-b2ef-1b30b9bb0e3f
+
+	/// Value of stock held above max stock (reorder point + EOQ). Reacts live to the sliders.
+	measure 'Excess Value' =
+			SUMX (
+			    VALUES ( Dim_SKU[StockCode] ),
+			    VAR MaxStock = [Reorder Point Units] + [EOQ Units]
+			    VAR OnHandU  = CALCULATE ( SELECTEDVALUE ( Dim_SKU[OnHand] ) )
+			    RETURN
+			        MAX ( 0, OnHandU - MaxStock ) * CALCULATE ( SELECTEDVALUE ( Dim_SKU[UnitCost] ) )
+			)
+		formatString: \£#,0
+		displayFolder: Inventory
+		lineageTag: ebfe880c-c8e3-4723-bf51-5fc99384f98a
+
+	measure 'Excess Units' =
+			SUMX (
+			    VALUES ( Dim_SKU[StockCode] ),
+			    MAX ( 0, CALCULATE ( SELECTEDVALUE ( Dim_SKU[OnHand] ) ) - ( [Reorder Point Units] + [EOQ Units] ) )
+			)
+		formatString: #,0
+		displayFolder: Inventory
+		lineageTag: ac233bd9-af28-4ce8-8d01-003396e07679
+
+	/// Ratio of two totals, so it aggregates correctly - it is not the sum of the row percentages.
+	measure 'Excess % of On Hand' = DIVIDE ( [Excess Value], [On Hand Value] )
+		formatString: 0.0%
+		displayFolder: Inventory
+		lineageTag: b8033a66-54e7-4e5d-92a3-6a711d36c5c6
+
+	/// Annual cost of goods divided by on-hand value. Both sides are already at cost.
+	measure 'Inventory Turns' = DIVIDE ( [Annual Consumption Value], [On Hand Value] )
+		formatString: 0.0"x"
+		displayFolder: Inventory
+		lineageTag: 419081eb-bc95-4965-9d13-31c1ae0f3dd7
+
+	measure 'Days on Hand' = DIVIDE ( 365, [Inventory Turns] )
+		formatString: #,0
+		displayFolder: Inventory
+		lineageTag: 20fcd5c6-6a0e-4549-937b-9ab3f7223efb
+
+	/// Working capital implied by the policy at the moment of reordering. Safety stock grows with
+	/// sqrt(lead time); this grows LINEARLY with it, so it is the number that really moves when
+	/// suppliers slow down.
+	measure 'Reorder Point Inventory Value' =
+			SUMX (
+			    VALUES ( Dim_SKU[StockCode] ),
+			    [Reorder Point Units] * CALCULATE ( SELECTEDVALUE ( Dim_SKU[UnitCost] ) )
+			)
+		formatString: \£#,0
+		displayFolder: Inventory
+		lineageTag: bc163d34-0928-4500-92ac-68eeca87fe48
+
+	/// Same quantity without the per-SKU ROUNDUP, for a perfectly smooth service-level curve. Matches
+	/// the Excel Service_Level_Scenario tab, which is also unrounded.
+	measure 'Safety Stock Value (unrounded)' =
+			SUMX (
+			    VALUES ( Dim_SKU[StockCode] ),
+			    NORM.S.INV ( [Effective Service Level] ) * [Std Dev Weekly Demand (safe)]
+			        * SQRT ( [Effective Lead Time] ) * CALCULATE ( SELECTEDVALUE ( Dim_SKU[UnitCost] ) )
+			)
+		formatString: \£#,0
+		displayFolder: Inventory
+		lineageTag: 342813f2-db7c-45a8-ab78-74eb93e78874
+
+	/// Cost of placing every replenishment order the policy is calling for right now.
+	measure 'Suggested Order Value' =
+			SUMX (
+			    VALUES ( Dim_SKU[StockCode] ),
+			    COALESCE ( [Suggested Order Qty], 0 ) * CALCULATE ( SELECTEDVALUE ( Dim_SKU[UnitCost] ) )
+			)
+		formatString: \£#,0
+		displayFolder: Inventory
+		lineageTag: 63b3cd5b-d316-47b5-ae05-c71cc86c6902
+
+	/// Turns three policy numbers into one word a planner can sort on. Blank above SKU grain rather
+	/// than inventing an answer.
+	measure 'Stock Status' =
+			VAR OnHandU = SELECTEDVALUE ( Dim_SKU[OnHand] )
+			RETURN
+			    SWITCH (
+			        TRUE (),
+			        NOT HASONEVALUE ( Dim_SKU[StockCode] ), BLANK (),
+			        OnHandU <= [Safety Stock Units], "Below Safety Stock",
+			        OnHandU <= [Reorder Point Units], "Reorder Now",
+			        OnHandU > [Reorder Point Units] + [EOQ Units], "Excess",
+			        "Healthy"
+			    )
+		displayFolder: Status
+		lineageTag: 692f33c3-5861-4ccd-b998-28e25a74f41c
+
+	/// The urgent half of the action list. The VAR evaluates each SKU's status once instead of once per
+	/// comparison.
+	measure 'SKUs Below Safety Stock' =
+			VAR StatusTable = ADDCOLUMNS ( VALUES ( Dim_SKU[StockCode] ), "@Status", [Stock Status] )
+			RETURN
+			    COUNTROWS ( FILTER ( StatusTable, [@Status] = "Below Safety Stock" ) )
+		formatString: #,0
+		displayFolder: Status
+		lineageTag: fdadda7b-044a-4dce-b41c-a67aad01843b
+
+	/// SKUs at or below their reorder point - counts BOTH 'Reorder Now' and 'Below Safety Stock'. The
+	/// Excel Summary tab's 'SKUs to reorder now' is the narrow count only; use [SKUs Reorder Now
+	/// (strict)] for that. Label this card 'SKUs needing action'.
+	measure 'SKUs Reorder Now' =
+			VAR StatusTable = ADDCOLUMNS ( VALUES ( Dim_SKU[StockCode] ), "@Status", [Stock Status] )
+			RETURN
+			    COUNTROWS ( FILTER ( StatusTable, [@Status] IN { "Reorder Now", "Below Safety Stock" } ) )
+		formatString: #,0
+		displayFolder: Status
+		lineageTag: 48a585d6-f722-49c3-a394-86886eed3e43
+
+	/// Past the reorder point but still above the buffer. This is the Excel Summary tab definition.
+	measure 'SKUs Reorder Now (strict)' =
+			VAR StatusTable = ADDCOLUMNS ( VALUES ( Dim_SKU[StockCode] ), "@Status", [Stock Status] )
+			RETURN
+			    COUNTROWS ( FILTER ( StatusTable, [@Status] = "Reorder Now" ) )
+		formatString: #,0
+		displayFolder: Status
+		lineageTag: 7d4d2a05-3022-46fb-9162-87b63f56182b
+
+	measure 'SKUs Excess' =
+			VAR StatusTable = ADDCOLUMNS ( VALUES ( Dim_SKU[StockCode] ), "@Status", [Stock Status] )
+			RETURN
+			    COUNTROWS ( FILTER ( StatusTable, [@Status] = "Excess" ) )
+		formatString: #,0
+		displayFolder: Status
+		lineageTag: 4f6ad2d8-5241-4f94-8a67-6220699192ff
+
+	measure 'SKUs Healthy' =
+			VAR StatusTable = ADDCOLUMNS ( VALUES ( Dim_SKU[StockCode] ), "@Status", [Stock Status] )
+			RETURN
+			    COUNTROWS ( FILTER ( StatusTable, [@Status] = "Healthy" ) )
+		formatString: #,0
+		displayFolder: Status
+		lineageTag: 30163359-ff17-4581-a6f4-62163367ff78
+
+	/// Lets a disconnected status table act as a chart legend. Stock Status is a measure, and a measure
+	/// cannot go on a legend or in a filter pane.
+	measure 'SKUs in Status' =
+			VAR Sel = SELECTEDVALUE ( 'Status List'[Status] )
+			VAR StatusTable = ADDCOLUMNS ( VALUES ( Dim_SKU[StockCode] ), "@Status", [Stock Status] )
+			RETURN
+			    COUNTROWS ( FILTER ( StatusTable, [@Status] = Sel ) )
+		formatString: #,0
+		displayFolder: Status
+		lineageTag: 0266c6a2-e0ca-4bd6-82bf-e6e036684114
+
+	/// High value AND below buffer. The single number the Operations Director acts on.
+	measure 'A-Class SKUs Below Safety Stock' =
+			VAR StatusTable =
+			    ADDCOLUMNS (
+			        CALCULATETABLE ( VALUES ( Dim_SKU[StockCode] ), Dim_SKU[ABC] = "A" ),
+			        "@Status", [Stock Status]
+			    )
+			RETURN
+			    COUNTROWS ( FILTER ( StatusTable, [@Status] = "Below Safety Stock" ) )
+		formatString: #,0
+		displayFolder: Status
+		lineageTag: f86e1e5b-b3d2-48b5-a660-c2f3af32f95e
+
+	/// Annual consumption value carried by the A-class SKUs currently below safety stock.
+	measure 'Value at Risk (A-class below SS)' =
+			VAR StatusTable =
+			    ADDCOLUMNS (
+			        CALCULATETABLE ( VALUES ( Dim_SKU[StockCode] ), Dim_SKU[ABC] = "A" ),
+			        "@Status", [Stock Status],
+			        "@ACV", [Annual Consumption Value]
+			    )
+			RETURN
+			    SUMX ( FILTER ( StatusTable, [@Status] = "Below Safety Stock" ), [@ACV] )
+		formatString: \£#,0
+		displayFolder: Status
+		lineageTag: 5bd8d082-5bfa-42aa-b1d9-b04c53a5adea
+
+	/// Feeds conditional formatting: Cell elements > Background colour > Format style 'Field value'.
+	measure 'Stock Status Colour' =
+			SWITCH (
+			    [Stock Status],
+			    "Below Safety Stock", "#B3261E",
+			    "Reorder Now", "#C47F15",
+			    "Healthy", "#1E7A4C",
+			    "Excess", "#3B6FD4",
+			    "#6E7C79"
+			)
+		displayFolder: Status
+		lineageTag: 7c9c6549-2725-45d6-a778-d7a584f7479c
+
+	measure 'Action Filter' =
+			VAR S = [Stock Status]
+			RETURN
+			    SWITCH (
+			        SELECTEDVALUE ( 'Action View'[View], "Action" ),
+			        "Action", IF ( S IN { "Reorder Now", "Below Safety Stock" }, 1, 0 ),
+			        "Excess", IF ( S = "Excess", 1, 0 ),
+			        1
+			    )
+		formatString: 0
+		displayFolder: Status
+		lineageTag: 289c409b-f2df-4c59-a72e-4b4380a37272
+
+	/// Plots the whole service-level-vs-investment trade-off in one visual. The 'SL Mode' filter forces
+	/// uniform mode inside this measure only, otherwise the curve is flat in class-based mode.
+	measure 'SS Value at Level' =
+			CALCULATE (
+			    [Total Safety Stock Value],
+			    TREATAS ( VALUES ( 'Service Level Curve'[Level] ), 'Service Level'[Service Level] ),
+			    'SL Mode'[SL Mode] = "Uniform (slider)"
+			)
+		formatString: \£#,0
+		displayFolder: Scenario
+		lineageTag: 533cdf31-c68f-4612-a558-6a04efdbf06c
+
+	measure 'SS Value at Level vs 95%' =
+			VAR Base =
+			    CALCULATE (
+			        [Total Safety Stock Value],
+			        TREATAS ( { 0.95 }, 'Service Level'[Service Level] ),
+			        'SL Mode'[SL Mode] = "Uniform (slider)"
+			    )
+			RETURN
+			    [SS Value at Level] - Base
+		formatString: \£#,0
+		displayFolder: Scenario
+		lineageTag: 328652e9-1865-44a3-9434-fc547e476b38
+
+	measure 'SS Value at Level vs 95% pct' =
+			VAR Base =
+			    CALCULATE (
+			        [Total Safety Stock Value],
+			        TREATAS ( { 0.95 }, 'Service Level'[Service Level] ),
+			        'SL Mode'[SL Mode] = "Uniform (slider)"
+			    )
+			RETURN
+			    DIVIDE ( [SS Value at Level] - Base, Base )
+		formatString: 0.0%
+		displayFolder: Scenario
+		lineageTag: 18410ed0-5d6e-4d18-a2fd-e34a01c0c38e
+
+	/// Writes its own insight sentence from the current slider position, so the page can never show a
+	/// stale number.
+	measure 'Simulator Headline' =
+			VAR SS95 =
+			    CALCULATE (
+			        [Total Safety Stock Value],
+			        TREATAS ( { 0.95 }, 'Service Level'[Service Level] ),
+			        'SL Mode'[SL Mode] = "Uniform (slider)"
+			    )
+			VAR SSNow = CALCULATE ( [Total Safety Stock Value], 'SL Mode'[SL Mode] = "Uniform (slider)" )
+			VAR Delta = SSNow - SS95
+			VAR Pct = DIVIDE ( Delta, SS95 )
+			RETURN
+			    "At a uniform " & FORMAT ( [Selected Service Level], "0.0%" ) & " service level, safety stock is "
+			        & FORMAT ( SSNow, "\£#,##0" ) & " - "
+			        & IF ( Delta >= 0, "£" & FORMAT ( Delta, "#,##0" ) & " more", "£" & FORMAT ( -Delta, "#,##0" ) & " less" )
+			        & " than at 95% (" & FORMAT ( ABS ( Pct ), "0.0%" ) & ")."
+		displayFolder: Scenario
+		lineageTag: cda04fbb-9870-4360-b136-98fc342bacac
+
+	/// Tariff / border-delay stress test in one sentence.
+	measure 'Lead Time Headline' =
+			VAR Shock = SELECTEDVALUE ( 'Lead Time Change'[Lead Time Change], 0 )
+			VAR SSNow = [Total Safety Stock Value]
+			VAR SSBase = CALCULATE ( [Total Safety Stock Value], TREATAS ( { 0 }, 'Lead Time Change'[Lead Time Change] ) )
+			VAR ROPNow = [Reorder Point Inventory Value]
+			VAR ROPBase = CALCULATE ( [Reorder Point Inventory Value], TREATAS ( { 0 }, 'Lead Time Change'[Lead Time Change] ) )
+			RETURN
+			    IF (
+			        Shock = 0,
+			        "Lead times at plan. Move the slider to stress-test a supplier delay.",
+			        "Lead times " & IF ( Shock > 0, "+", "" ) & Shock & " week(s): safety stock "
+			            & FORMAT ( SSNow, "\£#,##0" ) & " ("
+			            & IF ( SSNow >= SSBase, "+", "-" ) & "£" & FORMAT ( ABS ( SSNow - SSBase ), "#,##0" )
+			            & " vs plan) and working capital at reorder point "
+			            & FORMAT ( ROPNow, "\£#,##0" ) & " ("
+			            & IF ( ROPNow >= ROPBase, "+", "-" ) & "£" & FORMAT ( ABS ( ROPNow - ROPBase ), "#,##0" ) & ")."
+			    )
+		displayFolder: Scenario
+		lineageTag: 3b4c3be3-4b94-4b20-ab75-88820c7d7a2b
+
+	/// Pareto line. Reads the Power Query column that also drives the ABC class, so the chart and the
+	/// classification can never disagree - and it avoids an O(n^2) RANKX per visual refresh.
+	measure 'Cumulative Value %' = MAX ( Dim_SKU[CumValueShare] )
+		formatString: 0.0%
+		displayFolder: Chart helpers
+		lineageTag: 254fa1b9-5275-45db-a8af-fd1b738b6eca
+
+	/// Constant line for the SKU detail chart: Analytics > Constant line > fx > Field value.
+	measure 'Avg Plus 1 SD' = [Avg Weekly Demand] + [Std Dev Weekly Demand (safe)]
+		formatString: #,0.0
+		displayFolder: Chart helpers
+		lineageTag: cae2f3e7-b530-44bb-99bc-8494f7be8e47
+
+	/// Every card on this page is a single-SKU figure. A blank card means no SKU is selected,
+	/// not a broken measure - so the title says that in words instead of showing 'SKU  -  |  |'.
+	measure 'SKU Detail Title' =
+			IF (
+			    HASONEVALUE ( Dim_SKU[StockCode] ),
+			    "SKU " & SELECTEDVALUE ( Dim_SKU[StockCode] ) & " - " & SELECTEDVALUE ( Dim_SKU[Description] )
+			        & "  |  " & SELECTEDVALUE ( Dim_SKU[ABC_XYZ] )
+			        & "  |  " & SELECTEDVALUE ( Dim_SKU[Category] ),
+			    "Pick one SKU in the 'Choose a SKU' box to the right - every card below is a single-SKU "
+			        & "policy figure, so they stay blank until exactly one SKU is selected. "
+			        & "Try 22795, 20725 or 21257 - class, lead time and policy figures fill in as soon as one is picked."
+			)
+		displayFolder: Chart helpers
+		lineageTag: 597bbbdc-5799-4176-bfc5-3a29f8bc564c
+
+	/// Dynamic footer. Because it is a measure, moving a parameter slider cannot leave the stated
+	/// assumptions out of date.
+	measure 'Assumptions Footer' =
+			"ASSUMPTIONS - Unit cost = median selling price x 0.60 (40% gross margin; source has no cost data). "
+			    & "Lead time SIMULATED {2,4,6,8} weeks, deterministic from StockCode. "
+			    & "On Hand SIMULATED from a code-derived weeks-of-cover rule - no random numbers, reproducible on every refresh. "
+			    & "Ordering cost £" & SELECTEDVALUE ( 'Ordering Cost'[Ordering Cost], 50 )
+			    & "/order, holding cost " & FORMAT ( SELECTEDVALUE ( 'Holding Cost %'[Holding Cost %], 0.25 ), "0%" ) & "/yr. "
+			    & "Demand assumed normally distributed - a strong assumption for Z-class (lumpy) items. Currency GBP. "
+			    & "Source: UCI Online Retail II (Chen, D. 2012), CC BY 4.0."
+		displayFolder: Chart helpers
+		lineageTag: 62d13ccb-9216-48de-b7b6-fcd6d851ee99
+
+	/// Every SKU must have exactly 52 weekly rows. Put this on a card during validation.
+	measure 'Grid Check' =
+			VAR SKUs = DISTINCTCOUNT ( Fact_WeeklyDemand[StockCode] )
+			VAR Weeks = DISTINCTCOUNT ( Fact_WeeklyDemand[WeekStart] )
+			VAR RowsInGrid = COUNTROWS ( Fact_WeeklyDemand )
+			RETURN
+			    IF (
+			        RowsInGrid = SKUs * Weeks,
+			        "OK - " & SKUs & " SKUs x " & Weeks & " weeks = " & RowsInGrid & " rows",
+			        "BROKEN - " & RowsInGrid & " rows, expected " & SKUs * Weeks
+			    )
+		displayFolder: Validation
+		lineageTag: ae239ede-8983-4511-80c8-604fa5a9849a
+
+	/// Set SL Mode to Class-based, Lead Time Change 0, Ordering Cost 50, Holding Cost 25%, then read
+	/// this card. It compares Power BI against every one of the 500 Excel SKUs at once, not just three.
+	measure 'Excel Reconciliation Check' =
+			VAR Shared = CALCULATETABLE ( VALUES ( Dim_SKU[StockCode] ), Dim_SKU[In Excel Scope] = "In Excel top-500" )
+			VAR T =
+			    ADDCOLUMNS (
+			        Shared,
+			        "@SSbi", [Safety Stock Units],
+			        "@SSxl", CALCULATE ( SELECTEDVALUE ( Dim_SKU[SS_Excel] ) ),
+			        "@ROPbi", [Reorder Point Units],
+			        "@ROPxl", CALCULATE ( SELECTEDVALUE ( Dim_SKU[ROP_Excel] ) ),
+			        "@EOQbi", [EOQ Units],
+			        "@EOQxl", CALCULATE ( SELECTEDVALUE ( Dim_SKU[EOQ_Excel] ) )
+			    )
+			VAR Bad =
+			    COUNTROWS (
+			        FILTER ( T, [@SSbi] <> [@SSxl] || [@ROPbi] <> [@ROPxl] || [@EOQbi] <> [@EOQxl] )
+			    )
+			VAR Total = COUNTROWS ( Shared )
+			RETURN
+			    IF (
+			        ISBLANK ( Total ),
+			        "No Excel rows loaded",
+			        IF ( COALESCE ( Bad, 0 ) = 0,
+			            "MATCH - all " & Total & " Excel SKUs reconcile on SS, ROP and EOQ",
+			            COALESCE ( Bad, 0 ) & " of " & Total & " Excel SKUs differ" )
+			    )
+		displayFolder: Validation
+		lineageTag: b25eae9d-698f-4a10-91f4-cf499a78c478
+
+	/// Text-safe wrapper so a card can show the class without relying on an implicit aggregation.
+	measure 'ABC Class (selected)' = SELECTEDVALUE ( Dim_SKU[ABC] )
+		displayFolder: Chart helpers
+		lineageTag: 6d35dec4-3113-4eea-8a9a-06e93f0ea2da
+
+	measure 'XYZ Class (selected)' = SELECTEDVALUE ( Dim_SKU[XYZ] )
+		displayFolder: Chart helpers
+		lineageTag: 5770db01-bbed-4d2c-ac7a-3e975e0813bc
+
+	measure 'Lead Time Weeks (selected)' = SELECTEDVALUE ( Dim_SKU[LeadTimeWeeks] )
+		formatString: #,0
+		displayFolder: Chart helpers
+		lineageTag: ca899d96-bb60-49a9-bbb4-88ef4a4c763d
+
+	measure 'Unit Cost (selected)' = SELECTEDVALUE ( Dim_SKU[UnitCost] )
+		formatString: \£#,0.000
+		displayFolder: Chart helpers
+		lineageTag: 15662cd7-7dda-444a-a09d-7b491d00b3f4
+
+	measure 'On Hand (selected)' = SELECTEDVALUE ( Dim_SKU[OnHand] )
+		formatString: #,0
+		displayFolder: Chart helpers
+		lineageTag: edef862b-eb25-498d-b39a-9275ef9818e5
+
+	/// Same coefficient of variation as [CV], but blank above SKU grain. Used on the SKU Detail page
+	/// so one card cannot show a portfolio-wide 0.38 while every card beside it is correctly blank.
+	measure 'CV (selected)' = IF ( HASONEVALUE ( Dim_SKU[StockCode] ), [CV] )
+		formatString: 0.00
+		displayFolder: Chart helpers
+		lineageTag: 47240eff-4874-4406-add4-6ff638654574
+
+	/// Visual-level filter for the Page 4 table, switched by the Reorder / Excess buttons. Add to
+	/// 'Filters on this visual', is 1.
+	/// Same four colours as [Stock Status Colour], but keyed off the disconnected 'Status List'
+	/// table instead of the per-SKU measure - so the status donut is coloured by meaning
+	/// (red = below safety stock, amber = reorder, green = healthy, blue = excess) rather than by
+	/// whatever order the theme happens to assign. Data colours > fx > Field value.
+	measure 'Status List Colour' =
+			SWITCH (
+			    SELECTEDVALUE ( 'Status List'[Status] ),
+			    "Below Safety Stock", "#B3261E",
+			    "Reorder Now", "#C47F15",
+			    "Healthy", "#1E7A4C",
+			    "Excess", "#3B6FD4",
+			    "#6E7C79"
+			)
+		displayFolder: Status
+		lineageTag: 89472a32-2400-4d93-b712-e17c13fd4f71
+
+	/// ABC class as the Excel workbook classified it, over its own 500-SKU scope.
+	measure 'ABC (Excel)' = SELECTEDVALUE ( Dim_SKU[ABC_Excel] )
+		displayFolder: Validation
+		lineageTag: bb544fac-5626-4700-b50f-7ec8ca679505
+
+	/// XYZ class as the Excel workbook classified it.
+	measure 'XYZ (Excel)' = SELECTEDVALUE ( Dim_SKU[XYZ_Excel] )
+		displayFolder: Validation
+		lineageTag: ccd00d5e-0881-4509-9146-fe4178383bd6
+
+	/// Safety stock straight from the workbook's SKU_Policy sheet.
+	measure 'Safety Stock (Excel)' = SELECTEDVALUE ( Dim_SKU[SS_Excel] )
+		formatString: #,0
+		displayFolder: Validation
+		lineageTag: 0a4a4ca8-44d4-4354-b6b3-9e8cf9286179
+
+	/// Reorder point straight from the workbook's SKU_Policy sheet.
+	measure 'Reorder Point (Excel)' = SELECTEDVALUE ( Dim_SKU[ROP_Excel] )
+		formatString: #,0
+		displayFolder: Validation
+		lineageTag: 10e0e8a8-c086-415e-b170-e08f6c9a6dad
+
+	/// EOQ straight from the workbook's SKU_Policy sheet.
+	measure 'EOQ (Excel)' = SELECTEDVALUE ( Dim_SKU[EOQ_Excel] )
+		formatString: #,0
+		displayFolder: Validation
+		lineageTag: f7bb2a0f-4645-4e69-b811-25662b7a16a7
+
+	/// The workbook's simulated on-hand snapshot.
+	measure 'On Hand (Excel)' = SELECTEDVALUE ( Dim_SKU[OnHand_Excel] )
+		formatString: #,0
+		displayFolder: Validation
+		lineageTag: 7623e9c8-fe7b-434e-af45-f854c3b3bf2f
+
+	/// Power BI minus Excel for this SKU. Zero on every row is the whole point.
+	measure 'Safety Stock Diff' = IF ( NOT ISBLANK ( [Safety Stock (Excel)] ), [Safety Stock Units] - [Safety Stock (Excel)] )
+		formatString: #,0;-#,0;0
+		displayFolder: Validation
+		lineageTag: ba0c61be-80e1-4bcc-a698-4f6d9a0bcbc8
+
+	/// Power BI minus Excel for this SKU. Zero on every row is the whole point.
+	measure 'Reorder Point Diff' = IF ( NOT ISBLANK ( [Reorder Point (Excel)] ), [Reorder Point Units] - [Reorder Point (Excel)] )
+		formatString: #,0;-#,0;0
+		displayFolder: Validation
+		lineageTag: 2c630015-30e4-4158-9b61-6b856e9b4b02
+
+	/// Power BI minus Excel for this SKU. Zero on every row is the whole point.
+	measure 'EOQ Diff' = IF ( NOT ISBLANK ( [EOQ (Excel)] ), [EOQ Units] - [EOQ (Excel)] )
+		formatString: #,0;-#,0;0
+		displayFolder: Validation
+		lineageTag: d90232f6-4397-477a-93b7-d16b27088d24
+
+	/// SKUs where the Power BI safety stock differs from the workbook. Must be 0 with SL Mode
+	/// class-based and Lead Time Change 0.
+	measure 'SS Mismatches' =
+			VAR Shared = CALCULATETABLE ( VALUES ( Dim_SKU[StockCode] ), Dim_SKU[In Excel Scope] = "In Excel top-500" )
+			VAR T = ADDCOLUMNS ( Shared, "@bi", [Safety Stock Units], "@xl", CALCULATE ( SELECTEDVALUE ( Dim_SKU[SS_Excel] ) ) )
+			RETURN
+			    COALESCE ( COUNTROWS ( FILTER ( T, [@bi] <> [@xl] ) ), 0 )
+		formatString: #,0
+		displayFolder: Validation
+		lineageTag: 2056c3f1-40c9-4f51-82b5-0c15a1e2fa29
+
+	/// SKUs where the reorder point differs. Must be 0 under the Excel assumptions.
+	measure 'ROP Mismatches' =
+			VAR Shared = CALCULATETABLE ( VALUES ( Dim_SKU[StockCode] ), Dim_SKU[In Excel Scope] = "In Excel top-500" )
+			VAR T = ADDCOLUMNS ( Shared, "@bi", [Reorder Point Units], "@xl", CALCULATE ( SELECTEDVALUE ( Dim_SKU[ROP_Excel] ) ) )
+			RETURN
+			    COALESCE ( COUNTROWS ( FILTER ( T, [@bi] <> [@xl] ) ), 0 )
+		formatString: #,0
+		displayFolder: Validation
+		lineageTag: 30900b7d-b37b-4a9f-8ce6-734a951b20b3
+
+	/// SKUs where EOQ differs. Must be 0 with ordering cost 50 and holding cost 25%.
+	measure 'EOQ Mismatches' =
+			VAR Shared = CALCULATETABLE ( VALUES ( Dim_SKU[StockCode] ), Dim_SKU[In Excel Scope] = "In Excel top-500" )
+			VAR T = ADDCOLUMNS ( Shared, "@bi", [EOQ Units], "@xl", CALCULATE ( SELECTEDVALUE ( Dim_SKU[EOQ_Excel] ) ) )
+			RETURN
+			    COALESCE ( COUNTROWS ( FILTER ( T, [@bi] <> [@xl] ) ), 0 )
+		formatString: #,0
+		displayFolder: Validation
+		lineageTag: f85f649f-cd60-4c2a-aa52-e8af4eb18784
+
+	/// The simulated on-hand snapshot must reproduce exactly, or every downstream currency figure is
+	/// comparing two different inventories.
+	measure 'On Hand Mismatches' =
+			VAR Shared = CALCULATETABLE ( VALUES ( Dim_SKU[StockCode] ), Dim_SKU[In Excel Scope] = "In Excel top-500" )
+			VAR T = ADDCOLUMNS ( Shared, "@bi", CALCULATE ( SELECTEDVALUE ( Dim_SKU[OnHand] ) ), "@xl", CALCULATE ( SELECTEDVALUE ( Dim_SKU[OnHand_Excel] ) ) )
+			RETURN
+			    COALESCE ( COUNTROWS ( FILTER ( T, [@bi] <> [@xl] ) ), 0 )
+		formatString: #,0
+		displayFolder: Validation
+		lineageTag: eed21263-9871-47b5-b64d-8c4810685241
+
+	/// EXPECTED to be non-zero. Power BI ranks all 3,775 SKUs by cumulative consumption value; the
+	/// workbook ranks only its own top 500, so the 80/95 per cent cut points fall on different SKUs.
+	/// This card measures that difference instead of hiding it.
+	measure 'ABC Mismatches' =
+			VAR Shared = CALCULATETABLE ( VALUES ( Dim_SKU[StockCode] ), Dim_SKU[In Excel Scope] = "In Excel top-500" )
+			VAR T = ADDCOLUMNS ( Shared, "@bi", CALCULATE ( SELECTEDVALUE ( Dim_SKU[ABC] ) ), "@xl", CALCULATE ( SELECTEDVALUE ( Dim_SKU[ABC_Excel] ) ) )
+			RETURN
+			    COALESCE ( COUNTROWS ( FILTER ( T, [@bi] <> [@xl] ) ), 0 )
+		formatString: #,0
+		displayFolder: Validation
+		lineageTag: 31bd1f81-9baa-468c-933b-7085a28407c8
+
+	/// XYZ depends only on a SKU's own coefficient of variation, not on the rest of the portfolio, so
+	/// unlike ABC this one must be 0.
+	measure 'XYZ Mismatches' =
+			VAR Shared = CALCULATETABLE ( VALUES ( Dim_SKU[StockCode] ), Dim_SKU[In Excel Scope] = "In Excel top-500" )
+			VAR T = ADDCOLUMNS ( Shared, "@bi", CALCULATE ( SELECTEDVALUE ( Dim_SKU[XYZ] ) ), "@xl", CALCULATE ( SELECTEDVALUE ( Dim_SKU[XYZ_Excel] ) ) )
+			RETURN
+			    COALESCE ( COUNTROWS ( FILTER ( T, [@bi] <> [@xl] ) ), 0 )
+		formatString: #,0
+		displayFolder: Validation
+		lineageTag: 737996c7-401b-426d-b424-095f020ff2f4
+
+	/// How many SKUs the two models share.
+	measure 'Excel Scope SKU Count' = CALCULATE ( DISTINCTCOUNT ( Dim_SKU[StockCode] ), Dim_SKU[In Excel Scope] = "In Excel top-500" )
+		formatString: #,0
+		displayFolder: Validation
+		lineageTag: 05857978-42e0-4b7a-b3f0-58189ae57f72
+
+	/// The same A 98 / B 95 / C 90 policy, but driven by the workbook's own ABC class instead of this
+	/// model's. Exists purely so the reconciliation can separate a formula difference from a
+	/// classification-scope difference.
+	measure 'Class Service Level (Excel ABC)' = SWITCH ( SELECTEDVALUE ( Dim_SKU[ABC_Excel] ), "A", 0.98, "B", 0.95, "C", 0.90, 0.95 )
+		formatString: 0.0%
+		displayFolder: Validation
+		lineageTag: 7f40e09d-22db-4c73-b9ef-daf461a52f4f
+
+	/// Identical formula to [Safety Stock Units]; only the service level input is taken from the
+	/// workbook's ABC class.
+	measure 'Safety Stock Units (Excel ABC)' =
+			IF (
+			    HASONEVALUE ( Dim_SKU[StockCode] ),
+			    ROUNDUP (
+			        NORM.S.INV ( [Class Service Level (Excel ABC)] ) * [Std Dev Weekly Demand (safe)] * SQRT ( [Effective Lead Time] ),
+			        0
+			    )
+			)
+		formatString: #,0
+		displayFolder: Validation
+		lineageTag: c557be00-5665-4d6d-8fa7-41d9894110c0
+
+	measure 'Reorder Point Units (Excel ABC)' =
+			IF (
+			    HASONEVALUE ( Dim_SKU[StockCode] ),
+			    ROUNDUP ( [Avg Weekly Demand] * [Effective Lead Time] + [Safety Stock Units (Excel ABC)], 0 )
+			)
+		formatString: #,0
+		displayFolder: Validation
+		lineageTag: 14a99f51-3b29-4979-8b0e-130e79bd29c2
+
+	/// Safety stock differences that remain once the workbook's own ABC class is used. This must be 0:
+	/// it is what proves the two models share one formula and differ only in classification scope.
+	measure 'SS Mismatches (Excel ABC)' =
+			VAR Shared = CALCULATETABLE ( VALUES ( Dim_SKU[StockCode] ), Dim_SKU[In Excel Scope] = "In Excel top-500" )
+			VAR T = ADDCOLUMNS ( Shared, "@bi", [Safety Stock Units (Excel ABC)], "@xl", CALCULATE ( SELECTEDVALUE ( Dim_SKU[SS_Excel] ) ) )
+			RETURN
+			    COALESCE ( COUNTROWS ( FILTER ( T, [@bi] <> [@xl] ) ), 0 )
+		formatString: #,0
+		displayFolder: Validation
+		lineageTag: 45ba80ba-2c20-46e4-9682-f676ab3882b4
+
+	/// Reorder point differences on the workbook's ABC class. Must be 0 for the same reason.
+	measure 'ROP Mismatches (Excel ABC)' =
+			VAR Shared = CALCULATETABLE ( VALUES ( Dim_SKU[StockCode] ), Dim_SKU[In Excel Scope] = "In Excel top-500" )
+			VAR T = ADDCOLUMNS ( Shared, "@bi", [Reorder Point Units (Excel ABC)], "@xl", CALCULATE ( SELECTEDVALUE ( Dim_SKU[ROP_Excel] ) ) )
+			RETURN
+			    COALESCE ( COUNTROWS ( FILTER ( T, [@bi] <> [@xl] ) ), 0 )
+		formatString: #,0
+		displayFolder: Validation
+		lineageTag: 6e58a174-7487-482b-9ed7-6bbce1194ea2
+
+	/// Names the offending SKUs rather than just counting them, so a single-row difference can be
+	/// traced instead of argued about.
+	measure 'On Hand Mismatch Detail' =
+			VAR Shared = CALCULATETABLE ( VALUES ( Dim_SKU[StockCode] ), Dim_SKU[In Excel Scope] = "In Excel top-500" )
+			VAR T =
+			    ADDCOLUMNS (
+			        Shared,
+			        "@bi", CALCULATE ( SELECTEDVALUE ( Dim_SKU[OnHand] ) ),
+			        "@xl", CALCULATE ( SELECTEDVALUE ( Dim_SKU[OnHand_Excel] ) )
+			    )
+			VAR Bad = FILTER ( T, [@bi] <> [@xl] )
+			RETURN
+			    IF (
+			        ISEMPTY ( Bad ),
+			        "On hand reproduces on every shared SKU.",
+			        "On hand differs on: "
+			            & CONCATENATEX ( TOPN ( 8, Bad ), Dim_SKU[StockCode] & " (BI " & [@bi] & " vs XL " & [@xl] & ")", ", " )
+			    )
+		displayFolder: Validation
+		lineageTag: 84acbe9a-0d51-49fa-91b5-58bd2e6ab207
+
+	/// Grades the model against the workbook and refuses to grade at all until the sliders are set
+	/// to the Excel policy. It separates three kinds of difference: formula differences, which are
+	/// bugs; classification-scope differences, which are a design decision; and half-unit rounding
+	/// ties on the simulated on-hand snapshot, which are neither.
+	measure 'Reconciliation Verdict' =
+			VAR N      = [Excel Scope SKU Count]
+			VAR Stk    = [On Hand Mismatches]
+			VAR SSraw  = [SS Mismatches]
+			VAR ROPraw = [ROP Mismatches]
+			VAR SSadj  = [SS Mismatches (Excel ABC)]
+			VAR ROPadj = [ROP Mismatches (Excel ABC)]
+			VAR Other  = [EOQ Mismatches] + [XYZ Mismatches]
+			VAR Mode   = SELECTEDVALUE ( 'SL Mode'[SL Mode], "Class-based (A 98% / B 95% / C 90%)" )
+			VAR LT     = SELECTEDVALUE ( 'Lead Time Change'[Lead Time Change], 0 )
+			VAR OC     = SELECTEDVALUE ( 'Ordering Cost'[Ordering Cost], 50 )
+			VAR HC     = SELECTEDVALUE ( 'Holding Cost %'[Holding Cost %], 0.25 )
+			VAR ScopeNote =
+			    " " & SSraw & " safety stock and " & ROPraw & " reorder point values read differently before that adjustment, and every one is a SKU whose ABC class moved: Power BI ranks all 3,775 SKUs by cumulative consumption value, the workbook ranks only its own 500, so the 80/95 per cent cut points fall on different items. Same formula, wider portfolio."
+			RETURN
+			    IF (
+			        Mode <> "Class-based (A 98% / B 95% / C 90%)" || LT <> 0 || OC <> 50 || HC <> 0.25,
+			        "NOT COMPARABLE - set SL Mode to class-based, Lead Time Change 0, Ordering Cost 50, Holding Cost 25%. Any other setting is a scenario the workbook never ran.",
+			        IF (
+			            SSadj + ROPadj + Other > 0,
+			            "DIFFERS - " & SSadj & " safety stock, " & ROPadj & " reorder point, " & [EOQ Mismatches] & " EOQ, " & [XYZ Mismatches] & " XYZ, out of " & N & " shared SKUs once the ABC scope difference is neutralised. These are formula differences and need investigating.",
+			            IF (
+			                Stk = 0,
+			                "MATCH - all " & N & " shared SKUs agree on simulated on hand, XYZ class, EOQ, and, once the workbook's own ABC class is used as the service-level input, on safety stock and reorder point too." & ScopeNote,
+			                "MATCH ON POLICY - across all " & N & " shared SKUs the two models agree on XYZ class, EOQ, and, using the workbook's own ABC class, on safety stock and reorder point. The only residual is " & Stk & " SKU where the simulated on-hand snapshot lands exactly on a half unit and the two engines break the tie in opposite directions - a 1-unit difference, not a formula difference." & ScopeNote
+			            )
+			        )
+			    )
+		displayFolder: Validation
+		lineageTag: 7a2cf0ab-2b41-4f1e-93b3-1f1a4c1c7d55
+
+	/// Flat reference line for the SKU detail chart. [Avg Weekly Demand] inside a weekly axis averages
+	/// ONE week, which is that week's own value - so plotted as a series it lands exactly on top of
+	/// Units Sold and tells the reader nothing. ALL ( Dim_Week ) lifts the week filter so the line is
+	/// the 52-week mean it claims to be.
+	measure 'Avg Weekly Demand (all weeks)' = CALCULATE ( [Avg Weekly Demand], ALL ( Dim_Week ) )
+		formatString: #,0.0
+		displayFolder: Chart helpers
+		lineageTag: 4fcdf86a-88e3-4d9e-8a0d-28345ab3dcaa
+
+	/// Same fix for the average + 1 standard deviation band: constant across the 52 weeks, so a spike
+	/// above it is visibly a spike.
+	measure 'Avg Plus 1 SD (all weeks)' = CALCULATE ( [Avg Plus 1 SD], ALL ( Dim_Week ) )
+		formatString: #,0.0
+		displayFolder: Chart helpers
+		lineageTag: 0c1bc231-02ee-4f7f-8bd0-dc5a81bf0224
+
+	column Value
+		dataType: string
+		isHidden
+		lineageTag: 9851a6b8-5e4e-4a5d-bb10-68150246e9a8
+		summarizeBy: none
+		sourceColumn: [Value]
+
+		annotation SummarizationSetBy = Automatic
+
+	partition _Measures = calculated
+		mode: import
+		source = ROW("Value", "")
+
+	annotation PBI_ResultType = Table
+

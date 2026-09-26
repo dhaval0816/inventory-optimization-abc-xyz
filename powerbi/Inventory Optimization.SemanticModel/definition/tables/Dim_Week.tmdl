@@ -1,0 +1,92 @@
+/// Date table at weekly grain, marked as the report's date table. 52 contiguous Monday-starting
+/// weeks, 6 Dec 2010 to 28 Nov 2011.
+table Dim_Week
+	lineageTag: 9f7f2301-a7ca-43a6-a36d-0c0c98bc7e66
+
+	column WeekStart
+		dataType: dateTime
+		formatString: Long Date
+		lineageTag: 05a30334-446f-4fd9-b9a5-bf2b5a3c40aa
+		summarizeBy: none
+		sourceColumn: WeekStart
+
+		variation Variation
+			isDefault
+			relationship: bf82630f-2e5a-446a-bad9-30b67aea6c20
+			defaultHierarchy: LocalDateTable_c7d6e718-7a7b-4170-b4b5-2445670b7a5d.'Date Hierarchy'
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation UnderlyingDateTimeDataType = Date
+
+	column 'Week No'
+		dataType: int64
+		formatString: 0
+		lineageTag: 1fa7f861-c24d-4810-9e88-363e20c1b928
+		summarizeBy: sum
+		sourceColumn: Week No
+
+		annotation SummarizationSetBy = Automatic
+
+	column WeekEnd = Dim_Week[WeekStart] + 6
+		formatString: Long Date
+		lineageTag: 6736bab4-6b00-4d94-a610-7aed944d8015
+		summarizeBy: none
+
+		variation Variation
+			isDefault
+			relationship: f6e1f99d-6804-485c-b076-c10a19dfefd5
+			defaultHierarchy: LocalDateTable_e7076d66-4de1-4266-b072-fa777b786793.'Date Hierarchy'
+
+		changedProperty = DataType
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation UnderlyingDateTimeDataType = Date
+
+	column Month = FORMAT(Dim_Week[WeekStart], "MMM yyyy")
+		lineageTag: 3ee8b195-3fa4-4291-9331-8c3ff4a66e3c
+		summarizeBy: none
+
+		annotation SummarizationSetBy = Automatic
+
+	column MonthSort = YEAR(Dim_Week[WeekStart]) * 100 + MONTH(Dim_Week[WeekStart])
+		formatString: 0
+		lineageTag: db84e860-0460-4363-9777-b3bae6eca08c
+		summarizeBy: sum
+
+		annotation SummarizationSetBy = Automatic
+
+	column Quarter = "Q" & QUARTER(Dim_Week[WeekStart]) & " " & YEAR(Dim_Week[WeekStart])
+		lineageTag: 10cec51e-f4cb-46c3-8bdf-0db37cd51da5
+		summarizeBy: none
+		sortByColumn: QuarterSort
+
+		changedProperty = SortByColumn
+
+		annotation SummarizationSetBy = Automatic
+
+	column QuarterSort = YEAR(Dim_Week[WeekStart]) * 10 + QUARTER(Dim_Week[WeekStart])
+		formatString: 0
+		lineageTag: 82e1aa9c-9cbc-4e82-af0e-9435892bd6a8
+		summarizeBy: sum
+
+		annotation SummarizationSetBy = Automatic
+
+	partition Dim_Week = m
+		mode: import
+		source =
+				let
+				    Dates    = Fact_WeeklyDemand,
+				    #"Removed Other Columns" = Table.SelectColumns(Dates,{"WeekStart"}),
+				    #"Removed Duplicates" = Table.Distinct(#"Removed Other Columns"),
+				    #"Sorted Rows" = Table.Sort(#"Removed Duplicates",{{"WeekStart", Order.Ascending}}),
+				    #"Added Index" = Table.AddIndexColumn(#"Sorted Rows", "Index", 1, 1, Int64.Type),
+				    #"Renamed Columns" = Table.RenameColumns(#"Added Index",{{"Index", "Week No"}})
+				in
+				    #"Renamed Columns"
+
+	annotation PBI_ResultType = Table
+
+	annotation PBI_NavigationStepName = Navigation
+

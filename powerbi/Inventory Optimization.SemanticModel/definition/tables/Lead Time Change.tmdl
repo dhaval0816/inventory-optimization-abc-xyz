@@ -1,0 +1,23 @@
+/// Disconnected what-if parameter. Supplier delay stress test in whole weeks, -2 to +4.
+table 'Lead Time Change'
+	lineageTag: 717fc33f-dd8d-48d2-aafc-5ee6a5c5cb1d
+
+	measure 'Lead Time Change Value' = SELECTEDVALUE('Lead Time Change'[Lead Time Change], 0)
+		formatString: #,0
+		lineageTag: ea8d8f72-e954-44fc-adf0-db1603cc1192
+
+	column 'Lead Time Change'
+		dataType: double
+		formatString: #,0
+		lineageTag: 141c2c61-dd41-43c4-8743-69537a8079f2
+		summarizeBy: none
+		sourceColumn: [Value]
+
+		annotation SummarizationSetBy = Automatic
+
+	partition 'Lead Time Change' = calculated
+		mode: import
+		source = GENERATESERIES(-2, 4, 1)
+
+	annotation PBI_ResultType = Table
+

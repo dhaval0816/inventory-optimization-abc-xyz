@@ -1,0 +1,67 @@
+/// SKU x week demand grid. Every SKU has exactly 52 rows including weeks with no sales -
+/// zero-demand weeks must be present or the standard deviation understates variability and safety
+/// stock is set too low on exactly the lumpy items. Key columns are hidden: always slice from
+/// Dim_SKU and Dim_Week.
+table Fact_WeeklyDemand
+	lineageTag: ae9920e9-e8f8-4536-935a-9be80929b9c4
+
+	column StockCode
+		dataType: string
+		isHidden
+		lineageTag: 4a0de70b-0123-4ddc-84e3-00e2f20e5fc7
+		summarizeBy: none
+		sourceColumn: StockCode
+
+		annotation SummarizationSetBy = Automatic
+
+	column Revenue
+		dataType: double
+		formatString: \£#,0.00
+		lineageTag: 0e47930a-f42c-457d-afe4-57f9c95c327d
+		summarizeBy: sum
+		sourceColumn: Revenue
+
+		annotation SummarizationSetBy = Automatic
+
+	column WeekStart
+		dataType: dateTime
+		formatString: Long Date
+		lineageTag: 41287552-ff0e-4dda-997a-ab9a9fe64cf5
+		summarizeBy: none
+		sourceColumn: WeekStart
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation UnderlyingDateTimeDataType = Date
+
+	column Units
+		dataType: int64
+		formatString: 0
+		lineageTag: 4d22e664-797c-4996-9d67-6a5332c77461
+		summarizeBy: sum
+		sourceColumn: Units
+
+		annotation SummarizationSetBy = Automatic
+
+	partition Fact_WeeklyDemand = m
+		mode: import
+		source =
+				let
+				    WS        = Weekly_Sold,
+				    #"Removed Columns" = Table.RemoveColumns(WS,{"Revenue"}),
+				    #"Appended Query" = Table.Combine({#"Removed Columns", Zero_Week_Seed}),
+				    #"Pivoted Column" = Table.Pivot(Table.TransformColumnTypes(#"Appended Query", {{"WeekStart", type text}}, "en-CA"), List.Distinct(Table.TransformColumnTypes(#"Appended Query", {{"WeekStart", type text}}, "en-CA")[WeekStart]), "WeekStart", "Units"),
+				    #"Replaced Value" = Table.ReplaceValue(#"Pivoted Column",null,0,Replacer.ReplaceValue,{"StockCode", "2010-12-06", "2010-12-13", "2010-12-20", "2011-01-03", "2011-01-10", "2011-01-17", "2011-01-24", "2011-01-31", "2011-02-07", "2011-02-14", "2011-02-21", "2011-02-28", "2011-03-07", "2011-03-14", "2011-03-21", "2011-03-28", "2011-04-04", "2011-04-11", "2011-04-18", "2011-04-25", "2011-05-02", "2011-05-09", "2011-05-16", "2011-05-23", "2011-05-30", "2011-06-06", "2011-06-13", "2011-06-20", "2011-06-27", "2011-07-04", "2011-07-11", "2011-07-18", "2011-07-25", "2011-08-01", "2011-08-08", "2011-08-15", "2011-08-22", "2011-08-29", "2011-09-05", "2011-09-12", "2011-09-19", "2011-09-26", "2011-10-03", "2011-10-10", "2011-10-17", "2011-10-24", "2011-10-31", "2011-11-07", "2011-11-14", "2011-11-21", "2011-11-28", "2010-12-27"}),
+				    #"Unpivoted Other Columns" = Table.UnpivotOtherColumns(#"Replaced Value", {"StockCode"}, "Attribute", "Value"),
+				    #"Renamed Columns" = Table.RenameColumns(#"Unpivoted Other Columns",{{"Attribute", "WeekStart"}, {"Value", "Units"}}),
+				    #"Changed Type" = Table.TransformColumnTypes(#"Renamed Columns",{{"WeekStart", type date}, {"Units", Int64.Type}}),
+				    #"Merged Queries" = Table.NestedJoin(#"Changed Type", {"StockCode", "WeekStart"}, Weekly_Sold, {"StockCode", "WeekStart"}, "Weekly_Sold", JoinKind.LeftOuter),
+				    #"Expanded Weekly_Sold" = Table.ExpandTableColumn(#"Merged Queries", "Weekly_Sold", {"Revenue"}, {"Revenue"}),
+				    #"Replaced Value1" = Table.ReplaceValue(#"Expanded Weekly_Sold",null,0,Replacer.ReplaceValue,{"Revenue"})
+				in
+				    #"Replaced Value1"
+
+	annotation PBI_ResultType = Table
+
+	annotation PBI_NavigationStepName = Navigation
+

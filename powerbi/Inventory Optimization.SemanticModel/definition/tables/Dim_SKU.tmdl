@@ -1,0 +1,338 @@
+/// One row per SKU. UnitCost, LeadTimeWeeks and OnHand are ASSUMED or SIMULATED - see the
+/// Assumptions Footer measure. ABC / XYZ are computed over the FULL SKU universe; the *_Excel
+/// columns carry the top-500 Excel model's values for reconciliation.
+table Dim_SKU
+	lineageTag: fd63f393-a86a-4a86-a97c-d22322ec0610
+
+	column StockCode
+		dataType: string
+		lineageTag: 8a3644f0-02ea-4903-805f-fcf3c8c59ef4
+		summarizeBy: none
+		sourceColumn: StockCode
+
+		annotation SummarizationSetBy = Automatic
+
+	column Description
+		dataType: string
+		lineageTag: 66701769-76f0-41b5-b1c9-5ffd5aa2ccf3
+		summarizeBy: none
+		sourceColumn: Description
+
+		annotation SummarizationSetBy = Automatic
+
+	column MedianPrice
+		dataType: double
+		formatString: \£#,0.00
+		lineageTag: 236f980f-8b31-4998-86bb-f30006ff8146
+		summarizeBy: none
+		sourceColumn: MedianPrice
+
+		annotation SummarizationSetBy = Automatic
+
+	column ABC_Excel
+		dataType: string
+		isHidden
+		lineageTag: e5dcde10-6ef6-46b7-a0e2-975a4e2a9930
+		summarizeBy: none
+		sourceColumn: ABC_Excel
+
+		annotation SummarizationSetBy = Automatic
+
+	column XYZ_Excel
+		dataType: string
+		isHidden
+		lineageTag: be3bbb53-7543-429f-8610-650cd0ce1f06
+		summarizeBy: none
+		sourceColumn: XYZ_Excel
+
+		annotation SummarizationSetBy = Automatic
+
+	column OnHand_Excel
+		dataType: int64
+		isHidden
+		formatString: #,0
+		lineageTag: a82d2ea7-b913-446b-91b6-3dbb6ef6c4ee
+		summarizeBy: none
+		sourceColumn: OnHand_Excel
+
+		annotation SummarizationSetBy = Automatic
+
+	column SS_Excel
+		dataType: int64
+		isHidden
+		formatString: #,0
+		lineageTag: 96c3823f-aaea-4324-9212-7415f621ca42
+		summarizeBy: none
+		sourceColumn: SS_Excel
+
+		annotation SummarizationSetBy = Automatic
+
+	column ROP_Excel
+		dataType: int64
+		isHidden
+		formatString: #,0
+		lineageTag: 2efc4988-73ae-4239-978f-e33fc06417ef
+		summarizeBy: none
+		sourceColumn: ROP_Excel
+
+		annotation SummarizationSetBy = Automatic
+
+	column EOQ_Excel
+		dataType: int64
+		isHidden
+		formatString: #,0
+		lineageTag: bf4ddce7-097c-4f49-8ec0-f10d37246595
+		summarizeBy: none
+		sourceColumn: EOQ_Excel
+
+		annotation SummarizationSetBy = Automatic
+
+	column SL_Excel
+		dataType: double
+		isHidden
+		formatString: 0.0%
+		lineageTag: 6d3dd3ca-22b9-469f-8794-fe0fde52ca0c
+		summarizeBy: none
+		sourceColumn: SL_Excel
+
+		annotation SummarizationSetBy = Automatic
+
+	/// ASSUMPTION - unit cost = median selling price x (1 - 40% gross margin). The source has no cost
+	/// data. Every currency figure in the model scales linearly with this.
+	column UnitCost = Dim_SKU[MedianPrice] * 0.60
+		dataType: double
+		formatString: \£#,0.000
+		lineageTag: c2a433fe-fbba-4996-896f-0dde7e9e60c8
+		summarizeBy: none
+
+		annotation SummarizationSetBy = Automatic
+
+	/// Total units over the 52 modelled weeks. CALCULATE performs context transition - it turns this
+	/// row of Dim_SKU into a filter that flows to the fact table.
+	column AnnualUnits = CALCULATE ( SUM ( Fact_WeeklyDemand[Units] ) )
+		dataType: double
+		formatString: #,0
+		lineageTag: 84dd8b94-f05d-4370-9e77-19f5914a3dd6
+		summarizeBy: sum
+
+		annotation SummarizationSetBy = Automatic
+
+	column AvgWeekly = DIVIDE ( Dim_SKU[AnnualUnits], 52 )
+		dataType: double
+		formatString: #,0.0
+		lineageTag: 41ee4279-fd91-4c7f-8bb2-7ea01d150388
+		summarizeBy: none
+
+		annotation SummarizationSetBy = Automatic
+
+	/// Sample standard deviation of weekly units across all 52 weeks INCLUDING zero-demand weeks -
+	/// VALUES(Dim_Week[WeekStart]) returns every week, not just the ones with sales. Equivalent to
+	/// STDEV.S across a full row of the Excel Weekly_Demand sheet.
+	column StdWeekly =
+			CALCULATE (
+			    STDEVX.S (
+			        VALUES ( Dim_Week[WeekStart] ),
+			        CALCULATE ( SUM ( Fact_WeeklyDemand[Units] ) )
+			    )
+			)
+		dataType: double
+		formatString: #,0.0
+		lineageTag: c5b51d40-5ab6-4116-ab6c-c8f8cd3bd9e1
+		summarizeBy: none
+
+		annotation SummarizationSetBy = Automatic
+
+	/// Coefficient of variation - unpredictability independent of volume. Drives XYZ.
+	column CV = DIVIDE ( Dim_SKU[StdWeekly], Dim_SKU[AvgWeekly] )
+		dataType: double
+		formatString: 0.00
+		lineageTag: 4c759f11-b2be-4049-92b4-b9dfd52e5cc7
+		summarizeBy: none
+
+		annotation SummarizationSetBy = Automatic
+
+	/// SIMULATED lead time {2,4,6,8} weeks, deterministic from the StockCode so it never changes on
+	/// refresh. Identical to the Excel INDEX/MOD rule.
+	column LeadTimeWeeks =
+			VAR n = VALUE ( LEFT ( Dim_SKU[StockCode], 5 ) )
+			RETURN
+			    SWITCH ( MOD ( n, 4 ), 0, 2, 1, 4, 2, 6, 8 )
+		dataType: int64
+		formatString: #,0
+		lineageTag: ecce06d5-03bf-4931-953c-a1b20704386a
+		summarizeBy: none
+
+		annotation SummarizationSetBy = Automatic
+
+	/// SIMULATED weeks of cover from a code-derived number h (0-99): under 20 understocked, 20-74
+	/// normal, 75+ overstocked. No random numbers, so it is reproducible.
+	column WeeksOfCover =
+			VAR h = MOD ( VALUE ( LEFT ( Dim_SKU[StockCode], 5 ) ) * 37 + LEN ( Dim_SKU[StockCode] ) * 11, 100 )
+			RETURN
+			    SWITCH (
+			        TRUE (),
+			        h < 20, 1 + MOD ( h, 4 ),
+			        h < 75, 6 + MOD ( h, 11 ),
+			        26 + MOD ( h, 27 )
+			    )
+		dataType: int64
+		formatString: #,0
+		lineageTag: f6c21f20-f3a7-47e3-b19b-e6948c6b7bd1
+		summarizeBy: none
+
+		annotation SummarizationSetBy = Automatic
+
+	/// SIMULATED stock snapshot. DAX ROUND rounds half away from zero, exactly like Excel ROUND - M's
+	/// Number.Round uses banker's rounding and would disagree on ~1 SKU in 200.
+	column OnHand = ROUND ( Dim_SKU[AvgWeekly] * Dim_SKU[WeeksOfCover], 0 )
+		dataType: int64
+		formatString: #,0
+		lineageTag: 0ba4c51f-3271-4e72-a2aa-0f7dc0a465be
+		summarizeBy: sum
+
+		annotation SummarizationSetBy = Automatic
+
+	/// Whole-word keyword rule. The description is padded with spaces so " TIN " matches a word and not
+	/// PAINTING, and " LIGHT " not FLIGHT. Same rule as the Excel keyword table.
+	column Category =
+			VAR d =
+			    " "
+			        & UPPER (
+			            SUBSTITUTE ( SUBSTITUTE ( SUBSTITUTE ( SUBSTITUTE (
+			                Dim_SKU[Description], "-", " " ), "/", " " ), ",", " " ), ".", " " )
+			        )
+			        & " "
+			RETURN
+			    SWITCH (
+			        TRUE (),
+			        SEARCH ( " BAG ", d, 1, 0 ) > 0 || SEARCH ( " BAGS ", d, 1, 0 ) > 0, "Bags",
+			        SEARCH ( " CANDLE ", d, 1, 0 ) > 0 || SEARCH ( " CANDLES ", d, 1, 0 ) > 0
+			            || SEARCH ( " LIGHT ", d, 1, 0 ) > 0 || SEARCH ( " LIGHTS ", d, 1, 0 ) > 0, "Lighting",
+			        SEARCH ( " MUG ", d, 1, 0 ) > 0 || SEARCH ( " MUGS ", d, 1, 0 ) > 0
+			            || SEARCH ( " CAKE ", d, 1, 0 ) > 0 || SEARCH ( " CAKES ", d, 1, 0 ) > 0
+			            || SEARCH ( " CAKESTAND ", d, 1, 0 ) > 0
+			            || SEARCH ( " TIN ", d, 1, 0 ) > 0 || SEARCH ( " TINS ", d, 1, 0 ) > 0, "Kitchen",
+			        SEARCH ( " CARD ", d, 1, 0 ) > 0 || SEARCH ( " CARDS ", d, 1, 0 ) > 0, "Cards/Gifts",
+			        "Other"
+			    )
+		dataType: string
+		lineageTag: a67434bd-2855-4ef6-9e58-100acbc46187
+		summarizeBy: none
+
+		annotation SummarizationSetBy = Automatic
+
+	/// Annual demand at assumed cost. This is the ABC classification base.
+	column AnnualConsumptionValue = Dim_SKU[AnnualUnits] * Dim_SKU[UnitCost]
+		dataType: double
+		formatString: \£#,0
+		lineageTag: c3a3301a-733b-4eba-9d8b-2b4350208907
+		summarizeBy: sum
+
+		annotation SummarizationSetBy = Automatic
+
+	/// Running share of annual consumption value, descending. The StockCode half of the condition is a
+	/// TIE-BREAKER: two SKUs of equal value would otherwise each count the other and push cumulative
+	/// share past 100%. As a calculated column this is evaluated once per refresh - the same running
+	/// total written in M re-reads the source per row.
+	column CumValueShare =
+			VAR v = Dim_SKU[AnnualConsumptionValue]
+			VAR code = Dim_SKU[StockCode]
+			VAR Cum =
+			    SUMX (
+			        FILTER (
+			            Dim_SKU,
+			            Dim_SKU[AnnualConsumptionValue] > v
+			                || ( Dim_SKU[AnnualConsumptionValue] = v && Dim_SKU[StockCode] <= code )
+			        ),
+			        Dim_SKU[AnnualConsumptionValue]
+			    )
+			VAR Total = SUMX ( ALL ( Dim_SKU ), Dim_SKU[AnnualConsumptionValue] )
+			RETURN
+			    DIVIDE ( Cum, Total )
+		dataType: double
+		formatString: 0.0%
+		lineageTag: c676f1b6-97b3-4822-9541-a1cd4266b932
+		summarizeBy: none
+
+		annotation SummarizationSetBy = Automatic
+
+	/// 1 = highest value SKU. Used as the Pareto chart axis.
+	column ValueRank = RANKX ( Dim_SKU, Dim_SKU[CumValueShare], , ASC, DENSE )
+		dataType: int64
+		formatString: #,0
+		lineageTag: 3757d48f-2be2-4c29-ba2d-a5875d2ee515
+		summarizeBy: none
+
+		annotation SummarizationSetBy = Automatic
+
+	/// Cut-offs 80% / 95% of cumulative value, same as the Excel Assumptions tab.
+	column ABC =
+			SWITCH (
+			    TRUE (),
+			    Dim_SKU[CumValueShare] <= 0.80, "A",
+			    Dim_SKU[CumValueShare] <= 0.95, "B",
+			    "C"
+			)
+		dataType: string
+		lineageTag: d200ad96-adbf-43dc-bd0e-5b07aca2f734
+		summarizeBy: none
+
+		annotation SummarizationSetBy = Automatic
+
+	/// CV cut-offs 0.5 / 1.0.
+	column XYZ =
+			SWITCH (
+			    TRUE (),
+			    ISBLANK ( Dim_SKU[CV] ), "Z",
+			    Dim_SKU[CV] <= 0.5, "X",
+			    Dim_SKU[CV] <= 1.0, "Y",
+			    "Z"
+			)
+		dataType: string
+		lineageTag: 1a94276e-3d7b-41c1-9d69-969f9081c291
+		summarizeBy: none
+
+		annotation SummarizationSetBy = Automatic
+
+	column ABC_XYZ = Dim_SKU[ABC] & Dim_SKU[XYZ]
+		dataType: string
+		lineageTag: e37878a2-6bc7-423c-b687-18aec914a41e
+		summarizeBy: none
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'In Excel Scope' = IF ( ISBLANK ( Dim_SKU[SS_Excel] ), "Power BI only", "In Excel top-500" )
+		dataType: string
+		lineageTag: eb6ec8b5-a4b9-472c-ba23-d6de30ce1699
+		summarizeBy: none
+
+		annotation SummarizationSetBy = Automatic
+
+	/// Must read Match for all 500 Excel SKUs.
+	column 'OnHand Check' =
+			IF (
+			    ISBLANK ( Dim_SKU[OnHand_Excel] ),
+			    BLANK (),
+			    IF ( Dim_SKU[OnHand_Excel] = Dim_SKU[OnHand], "Match", "DIFFERS" )
+			)
+		dataType: string
+		isHidden
+		lineageTag: 10b862d5-31eb-43a9-b460-c72313d480bc
+		summarizeBy: none
+
+		annotation SummarizationSetBy = Automatic
+
+	partition Dim_SKU = m
+		mode: import
+		source =
+				let
+				    Source   = SKU_Attributes,
+				    #"Merged Queries" = Table.NestedJoin(Source, {"StockCode"}, Excel_SKU_Policy, {"StockCode"}, "Excel_SKU_Policy", JoinKind.LeftOuter),
+				    #"Expanded Excel_SKU_Policy" = Table.ExpandTableColumn(#"Merged Queries", "Excel_SKU_Policy", {"ABC_Excel", "XYZ_Excel", "OnHand_Excel", "SS_Excel", "ROP_Excel", "EOQ_Excel", "SL_Excel"}, {"ABC_Excel", "XYZ_Excel", "OnHand_Excel", "SS_Excel", "ROP_Excel", "EOQ_Excel", "SL_Excel"})
+				in
+				    #"Expanded Excel_SKU_Policy"
+
+	annotation PBI_ResultType = Exception
+
+	annotation PBI_NavigationStepName = Navigation
+

@@ -1,0 +1,18 @@
+/// Disconnected toggle behind the Planner Action List buttons, read by [Action Filter].
+table 'Action View'
+	lineageTag: 359f7953-1f5d-4f1d-9ae0-841b7386c972
+
+	column View
+		dataType: string
+		lineageTag: f50cec64-bbc4-4e8b-add6-246a2acab35d
+		summarizeBy: none
+		sourceColumn: [View]
+
+		annotation SummarizationSetBy = Automatic
+
+	partition 'Action View' = calculated
+		mode: import
+		source = DATATABLE("View", STRING, { { "Action" }, { "Excess" } })
+
+	annotation PBI_ResultType = Table
+

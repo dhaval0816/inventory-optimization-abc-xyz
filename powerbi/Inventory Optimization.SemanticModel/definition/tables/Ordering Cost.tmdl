@@ -1,0 +1,23 @@
+/// Disconnected what-if parameter. Cost of placing one purchase order. Drives EOQ only.
+table 'Ordering Cost'
+	lineageTag: 1a34e841-e394-4ef4-aa43-c31119877400
+
+	measure 'Ordering Cost Value' = SELECTEDVALUE('Ordering Cost'[Ordering Cost], 50)
+		formatString: \£#,0
+		lineageTag: d68aac3f-de93-463c-85b9-29f98147a30c
+
+	column 'Ordering Cost'
+		dataType: double
+		formatString: \£#,0
+		lineageTag: eba6d8f1-3285-4d4d-90a6-119e42ffa22c
+		summarizeBy: none
+		sourceColumn: [Value]
+
+		annotation SummarizationSetBy = Automatic
+
+	partition 'Ordering Cost' = calculated
+		mode: import
+		source = GENERATESERIES(20, 100, 10)
+
+	annotation PBI_ResultType = Table
+

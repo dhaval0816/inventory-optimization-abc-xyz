@@ -1,0 +1,60 @@
+/// Reference table for the Page 2 policy recommendations. Mirrors the Excel ABC_XYZ_Matrix tab.
+/// Disconnected on purpose - it documents policy, it does not filter.
+table 'Segment Policy'
+	lineageTag: dc179c8d-f74f-4df0-a298-a6e88d9f5701
+
+	column Segment
+		dataType: string
+		lineageTag: 7bd8dcf4-ba2f-4761-b70c-02eb828980ee
+		summarizeBy: none
+		sourceColumn: [Segment]
+		sortByColumn: SortOrder
+
+		annotation SummarizationSetBy = Automatic
+
+	column SortOrder
+		dataType: int64
+		isHidden
+		formatString: #,0
+		lineageTag: 350368fe-ebc9-4c6c-bd6c-3d2e9bca3f69
+		summarizeBy: none
+		sourceColumn: [SortOrder]
+
+		annotation SummarizationSetBy = Automatic
+
+	column Profile
+		dataType: string
+		lineageTag: 0e750db1-7d26-4f32-8ca0-ff9f567e9d98
+		summarizeBy: none
+		sourceColumn: [Profile]
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'Recommended policy'
+		dataType: string
+		lineageTag: fc9e76ea-4488-4f63-8d11-7fd3e45c1e09
+		summarizeBy: none
+		sourceColumn: [Recommended policy]
+
+		annotation SummarizationSetBy = Automatic
+
+	partition 'Segment Policy' = calculated
+		mode: import
+		source =
+				DATATABLE (
+				    "Segment", STRING, "SortOrder", INTEGER, "Profile", STRING, "Recommended policy", STRING,
+				    {
+				        { "AX", 1, "High value, steady demand", "Tight automated continuous-review replenishment (ROP/EOQ). Frequent small orders, low relative buffer, negotiate VMI or blanket POs. Review monthly." },
+				        { "AY", 2, "High value, variable demand", "ROP with calculated safety stock; weekly planner review of forecast vs actual. Get visibility of large wholesale orders early." },
+				        { "AZ", 3, "High value, lumpy demand", "Do NOT rely on normal-distribution safety stock alone. Manual review, make-to-order or consignment stock, lead-time agreements for bulk orders. Highest exposure if import lead times lengthen." },
+				        { "BX", 4, "Medium value, steady", "Automated periodic review, larger EOQ-based orders to cut ordering cost." },
+				        { "BY", 5, "Medium value, variable", "Periodic review with calculated safety stock; check seasonality before each Q4 gift peak." },
+				        { "BZ", 6, "Medium value, lumpy", "Lower service target or order-on-demand; pool with similar items; check for promo one-offs inflating history." },
+				        { "CX", 7, "Low value, steady", "Simple two-bin / min-max; order infrequently in bulk - cheap to hold." },
+				        { "CY", 8, "Low value, variable", "Min-max with a generous review period; accept a lower service level." },
+				        { "CZ", 9, "Low value, lumpy", "Candidate to reduce range, move to order-to-order, or discontinue. Clear excess; hold no safety stock." }
+				    }
+				)
+
+	annotation PBI_ResultType = Table
+

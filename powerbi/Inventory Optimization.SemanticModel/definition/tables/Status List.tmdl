@@ -1,0 +1,32 @@
+/// Disconnected legend table. Stock Status is a measure and a measure cannot go on a legend or in
+/// the filter pane, so charts group on this and count with [SKUs in Status].
+table 'Status List'
+	lineageTag: 9b96d3bd-4984-451d-9d26-ce2bb964ee00
+
+	column Status
+		dataType: string
+		lineageTag: 18c1699f-9122-4759-a03f-055b7993c4e7
+		summarizeBy: none
+		sourceColumn: [Status]
+		sortByColumn: SortOrder
+
+		annotation SummarizationSetBy = Automatic
+
+	column SortOrder
+		dataType: int64
+		isHidden
+		formatString: #,0
+		lineageTag: 820a15b0-e4fd-42fd-8103-b196aba484fc
+		summarizeBy: none
+		sourceColumn: [SortOrder]
+
+		annotation SummarizationSetBy = Automatic
+
+	partition 'Status List' = calculated
+		mode: import
+		source =
+				DATATABLE("Status", STRING, "SortOrder", INTEGER,
+				    { { "Below Safety Stock", 1 }, { "Reorder Now", 2 }, { "Healthy", 3 }, { "Excess", 4 } })
+
+	annotation PBI_ResultType = Table
+
