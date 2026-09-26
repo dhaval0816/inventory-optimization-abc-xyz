@@ -146,7 +146,7 @@ What each image must show, how to capture it, and what it is there to prove. A p
 
 ---
 
-## `07_power_query_applied_steps.png` - proof of no hand-written M
+## `07_power_query_applied_steps.png` - proof the ETL was clicked, not coded
 
 **Source:** Power BI Desktop → Home → Transform data → query `Fact_WeeklyDemand`
 
