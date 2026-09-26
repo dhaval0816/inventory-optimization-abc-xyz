@@ -1,0 +1,11 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/gitIntegration/platformProperties/2.0.0/schema.json",
+  "metadata": {
+    "type": "SemanticModel",
+    "displayName": "Inventory Optimization"
+  },
+  "config": {
+    "version": "2.0",
+    "logicalId": "acb0ed29-0012-4355-ab62-8ef8c1fab9bf"
+  }
+}
