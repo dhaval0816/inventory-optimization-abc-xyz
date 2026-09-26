@@ -125,16 +125,16 @@ What each image must show, how to capture it, and what it is there to prove. A p
 
 **Purpose.** For the technical reviewer. A clean star schema is the fastest way to signal that the author understands data modelling rather than just visual building.
 
-**Must be visible**
+**What the committed image shows**
 
-- `Fact_WeeklyDemand` centred, with `Dim_SKU` and `Dim_Week` above it, relationship lines with visible 1 → \* cardinality and single-direction arrows.
-- The disconnected parameter tables arranged separately, clearly not related to anything.
-- `Dim_Week` showing its date-table marker.
-- The `_Measures` table.
+- `Fact_WeeklyDemand` in the centre with `Dim_Week` on its left and `Dim_SKU` on its right, both relationship lines showing 1 → \* cardinality and a single-direction filter arrow pointing into the fact table.
+- Only those three tables. The shot was taken on its own Model view layout tab, built with right-click → **Add related tables** on `Fact_WeeklyDemand`, so the star schema reads cleanly instead of competing with the ten disconnected tables.
+- The parameter tables (`Service Level`, `Lead Time Change`, `Ordering Cost`, `Holding Cost %`, `SL Mode`, `Status List`, `Segment Policy`, `Service Level Curve`, `Action View`) and the `_Measures` host table live on the default **All tables** tab. They are disconnected by design - nothing joins them to the fact table - which is exactly why they are absent from a *related tables* layout.
+- `Dim_Week` carries **no** date-table marker. Power BI's *Mark as date table* requires a contiguous daily calendar and this one is weekly, so the marker was refused rather than faked. `docs/assumptions.md` records that.
 
-**Capture tips:** arrange the tables before capturing - the default auto-layout is a tangle. Collapse long field lists so table cards stay compact. Zoom so every table name is legible at 1920px wide.
+**Capture tips:** build a separate layout tab and use *Add related tables* rather than fighting the default auto-layout. Collapse long field lists so the table cards stay compact. Capture at 1920px wide so every table and column name is legible.
 
-**What it proves:** 13 tables · single-direction relationships · parameters disconnected by design · a measure host table.
+**What it proves:** a star schema, not a web · single-direction relationships · a fact table joined on exactly two keys · parameters deliberately outside the model.
 
 ---
 
@@ -150,18 +150,21 @@ What each image must show, how to capture it, and what it is there to prove. A p
 
 **Source:** Power BI Desktop → Home → Transform data → query `Fact_WeeklyDemand`
 
-**Purpose.** Shows that the ETL was built by hand in the ribbon, not coded. This is the image that backs up the "no M code" claim in the README.
+**Purpose.** Shows that the ETL was built by clicking the ribbon, not by writing M. This is the image that backs up the claim in the README - and the step names are left exactly as Power Query generated them, because a default name like `Unpivoted Other Columns` is itself the evidence that a ribbon button produced it.
 
-**Must be visible**
+**What the committed image shows**
 
-- The Applied Steps pane (right side), fully expanded, with every step renamed in plain English - `Removed sheet overlap`, `Removed cancellations`, `Kept 5-digit product codes`, `Added WeekStart`, `Pivoted weeks`, `Replaced null with zero`, `Unpivoted weeks` …
-- The Queries pane (left) showing the query names: `Sales_Raw`, `Weekly_Sold`, `Fact_WeeklyDemand`, `Dim_SKU`, `Excel_Top500_Wide`.
-- The status bar showing the row count.
-- Ideally, a step selected that is usually coded - `Kept 5-digit product codes` or `Replaced null with zero` - so its ribbon origin is obvious.
+- The **Applied Steps** pane on the right, with all eleven steps of `Fact_WeeklyDemand` visible and named by Power Query itself:
 
-**Do not show:** the Advanced Editor. The point is that it was never needed.
+  `WS` · `Removed Columns` · `Appended Query` · `Pivoted Column` · `Replaced Value` · `Unpivoted Other Columns` · `Renamed Columns` · `Changed Type` · `Merged Queries` · `Expanded Weekly_Sold` · `Replaced Value1`
 
-**Optional second shot:** the same pane with the formula bar hidden (View → uncheck Formula Bar) - the query then reads purely as a list of actions.
+  Every one of those names is the label Power Query writes when you use the matching ribbon command. `Pivoted Column`, `Unpivoted Other Columns`, `Merged Queries` and `Expanded Weekly_Sold` in particular are the steps a coded solution would have written by hand.
+- The **Queries** pane on the left with the real query list: the two parameters `SourceFile` and `ExcelModelFile`, the source queries `Sales_2009_2010` and `Sales_2010_2011`, the staging queries `Sales_Raw`, `Weekly_Sold`, `Zero_Week_Seed`, `SKU_Description`, `SKU_Attributes` and `Excel_SKU_Policy`, and the three loaded tables `Fact_WeeklyDemand`, `Dim_SKU` and `Dim_Week`.
+- No **Advanced Editor** window. It was never needed.
+
+**On the one typed formula.** `Sales_Raw` contains a single `Added Custom` step holding `Date.StartOfWeek([InvoiceDate], Day.Monday)`. It is typed, it is named in the README and in `powerquery/power_query_steps.md`, and the reason is documented there: the ribbon's *Date → Week → Start of Week* button always returns Sunday-based weeks regardless of query locale, and this project needs Monday weeks. It sits in `Sales_Raw`, not in `Fact_WeeklyDemand`, so it is not in this screenshot - a reviewer who wants to see it should select `Sales_Raw`.
+
+**Optional second shot:** `Sales_Raw` selected with the formula bar visible on the `Added Custom` step, so the one typed formula in the whole project can be read directly.
 
 ---
 
@@ -169,15 +172,15 @@ What each image must show, how to capture it, and what it is there to prove. A p
 
 | File | Source | Why |
 |---|---|---|
-| `07_reconciliation.png` | Report page 6 | The verdict card reading MATCH ON POLICY with the zero-mismatch cards. Almost no portfolio project has a reconciliation page - this one image does a lot of work |
-| `08_sku_detail.png` | Report page 5 | The 52-week demand line with flat average and average+1σ reference lines, with a SKU selected |
+| `08_reconciliation.png` | Report page 6 | The verdict card reading MATCH ON POLICY with the zero-mismatch cards. Almost no portfolio project has a reconciliation page - this one image does a lot of work |
+| `09_sku_detail.png` | Report page 5 | The 52-week demand line with flat average and average+1σ reference lines, with a SKU selected |
 
 ---
 
 ## Pre-publication checklist
 
 - [ ] All seven images at 1920 × 1080 or better
-- [ ] `07` shows only renamed ribbon steps - no Custom Column steps
+- [ ] `07` shows Power Query's own default step names - no renaming that could hide where a step came from
 - [ ] No `(Blank)` cards, no error triangles, no sample data
 - [ ] No file paths, taskbars, browser chrome or personal information
 - [ ] Parameters at documented defaults in every shot
