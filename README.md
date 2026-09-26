@@ -191,7 +191,11 @@ And the one the ribbon genuinely cannot do:
 |---|---|
 | `WeekStart = Date.StartOfWeek([InvoiceDate], Day.Monday)`, entered in the *Custom Column* dialog | *Add Column → Date → Week → Start of Week* always uses Sunday as the first day of the week. The argument is optional in M and defaults to Sunday; the query locale does not change it. This dataset's weeks run Monday–Sunday, so the default would have shifted every weekly boundary. |
 
-**What a reviewer sees:** open *Transform data* and every query's Applied Steps pane reads as plain-English ribbon steps (`Removed cancellations`, `Kept 5-digit product codes`, `Pivoted Column`, `Replaced Value`, `Unpivoted Other Columns` …). Exactly one step - `Added Custom` in `Sales_Raw` - holds a typed formula, and it is the one described above. No *Advanced Editor* edits anywhere. A screenshot of that pane is the proof - see `images/07_power_query_applied_steps.png` in [`images/README.md`](images/README.md).
+**What a reviewer sees:** open *Transform data* and the Applied Steps pane of `Sales_Raw` and `Fact_WeeklyDemand` reads as the names Power Query wrote itself - `Filtered Rows`, `Trimmed Text`, `Uppercased Text`, `Inserted First Characters`, `Removed Errors`, `Pivoted Column`, `Replaced Value`, `Unpivoted Other Columns`, `Merged Queries`, `Expanded Weekly_Sold`. Those names were left alone on purpose: each one is the label a specific ribbon command generates, so the default name is itself the evidence of where the step came from. The source and staging queries (`Sales_2009_2010`, `Excel_SKU_Policy`) do carry renamed steps such as `NoOverlap` and `Promoted`, because there the intent needs saying. Exactly one step in the whole file - `Added Custom` in `Sales_Raw` - holds a typed formula, and it is the one described above. No *Advanced Editor* edits anywhere. A screenshot of that pane is the proof:
+
+![Power Query Applied Steps](images/07_power_query_applied_steps.png)
+
+*`Fact_WeeklyDemand` in the Power Query Editor. Eleven steps, every name written by Power Query itself when the matching ribbon button was used - `Pivoted Column`, `Replaced Value`, `Unpivoted Other Columns`, `Merged Queries`, `Expanded Weekly_Sold`. The steps are deliberately left un-renamed: a default name is harder to fake than a tidy one. The one typed formula lives in `Sales_Raw`, not here. See [`images/README.md`](images/README.md) for what each shot is meant to prove.*
 
 ---
 
@@ -319,6 +323,14 @@ Excess Value = MAX(0, On Hand − Max Stock Level) × Unit Cost
 | Requiring action | 2,099 | 55.6% | |
 
 **Aggregation note that a reviewer will look for:** per-SKU policy measures do not add up at total level, because a measure evaluated over 3,775 SKUs at once has no single σ or lead time. Every portfolio total therefore iterates: `SUMX(VALUES(Dim_SKU[StockCode]), [Safety Stock Units] × UnitCost)`. Summing the measure directly would silently return a meaningless number rather than an error.
+
+---
+
+### The policy sheet in the workbook
+
+![Excel policy sheet](images/06_excel_policy_sheet.png)
+
+*`SKU_Policy` in `excel/inventory_policy_calculator.xlsx`. ABC and XYZ class, target service level, Z-score, safety stock, reorder point, EOQ, on hand, weeks of cover and excess, one row per SKU. Every value on this sheet is a formula reading the `Assumptions` sheet - click any cell in the workbook to see it.*
 
 ---
 
